@@ -1,0 +1,5 @@
+# Bachelor Thesis
+
+### Resources
+
+- Exercises
