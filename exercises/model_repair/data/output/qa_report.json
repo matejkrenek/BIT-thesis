@@ -1,0 +1,13 @@
+{
+  "duplicated_vertices": 0,
+  "degenerate_faces": 9,
+  "non_manifold_edges": 223,
+  "small_clusters": 0,
+  "outliers": 0,
+  "boundary_edges": 223,
+  "is_watertight": false,
+  "is_edge_manifold": true,
+  "is_vertex_manifold": true,
+  "vertices": 35947,
+  "faces": 69451
+}
