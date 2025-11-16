@@ -8,3 +8,7 @@ class DatasetConfig:
     name: str = "ShapeNetSyntetic"
     input_path: str = "data/raw"
     output_path: str = "data/syntetic"
+    download_url: str = (
+        "https://huggingface.co/datasets/ShapeNet/ShapeNetCore/resolve/main/"
+        "ShapeNetCore.v2.zip"
+    )
