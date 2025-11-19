@@ -1,14 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import os
+
+
+@dataclass
+class DatasetDownloadConfig:
+    repo_id: str = "ShapeNet/ShapeNetCore"
+    token: str = os.getenv("HUGGING_FACE_TOKEN", "")
+    local_dir: str = "data/raw/ShapeNetCore"
 
 
 @dataclass
 class DatasetConfig:
-    """Configuration for dataset paths and names."""
-
-    name: str = "ShapeNetSyntetic"
-    input_path: str = "data/raw"
-    output_path: str = "data/syntetic"
-    download_url: str = (
-        "https://huggingface.co/datasets/ShapeNet/ShapeNetCore/resolve/main/"
-        "ShapeNetCore.v2.zip"
-    )
+    name: str = "ShapeNetSynthetic"
+    download: DatasetDownloadConfig = field(default_factory=DatasetDownloadConfig)

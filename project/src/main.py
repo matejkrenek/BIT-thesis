@@ -1,16 +1,26 @@
-from visualization.viewers.sample import SampleViewer
-from utils.io import load_ply
+from dotenv import load_dotenv
+from logger import logger
+from pathlib import Path
 
-if __name__ == "__main__":
-    pairs = []
+logger.info("Loading environment variables from .env file...")
+load_dotenv(Path(".env"))
 
-    clean = load_ply("data/examples/bunny.ply")
-    corrupted = load_ply("data/examples/bunny.ply")
-    pairs.append((clean, corrupted))
+from datasets.config import DatasetConfig
+from datasets.downloaders.huggingface import HuggingFaceDownloader
+import os
 
-    clean = load_ply("data/examples/bunny.ply")
-    corrupted = load_ply("data/examples/bunny.ply")
-    pairs.append((clean, corrupted))
+logger.info("Environment variables loaded successfully.")
 
-    viewer = SampleViewer(pairs)
-    viewer.show()
+logger.info("Initializing dataset downloader...")
+dataset_config = DatasetConfig()
+
+logger.info("Creating Hugging Face downloader...")
+downloader = HuggingFaceDownloader(
+    repo_id=dataset_config.download.repo_id,
+    local_dir=dataset_config.download.local_dir,
+    token=dataset_config.download.token,
+)
+
+logger.info("Starting dataset download...")
+downloader.download()
+logger.info("Dataset download completed.")
