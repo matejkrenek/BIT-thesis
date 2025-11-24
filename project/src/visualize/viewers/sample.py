@@ -2,56 +2,77 @@ import polyscope as ps
 import polyscope.imgui as psim
 import numpy as np
 from .base import BaseViewer
+from torch.utils.data import Dataset
+from torch_geometric.loader import DataLoader
 
 
 class SampleViewer(BaseViewer):
     """Viewer for paginating through (clean, corrupted) point cloud pairs."""
 
-    def __init__(self, pairs, shift=0.1, radius=0.003):
+    def __init__(
+        self,
+        dataset: Dataset,
+        render_callback: callable = None,
+        text_callback: callable = None,
+    ):
+        self.render_callback = render_callback
+        self.text_callback = text_callback
         super().__init__()
+
         if not self.initialized:
             ps.init()
+            self.loader = list(DataLoader(dataset, batch_size=1, shuffle=False))
+            self.index = 0
+            self.sample = self.loader[self.index][0]
             self.initialized = True
-        self.pairs = pairs
-        self.index = 0
-        self.shift = shift
-        self.radius = radius
+
+    def gui_callback(self):
+        old_index = self.index
+
+        if ps.imgui.Button("Previous") or psim.IsKeyPressed(psim.ImGuiKey_LeftArrow):
+            self.prev()
+
+        ps.imgui.SameLine()
+
+        if ps.imgui.Button("Next") or psim.IsKeyPressed(psim.ImGuiKey_RightArrow):
+            self.next()
+
+        if psim.IsKeyPressed(psim.ImGuiKey_UpArrow):
+            pc_defected = ps.get_point_cloud("defected")
+            pc_defected.set_enabled(not pc_defected.is_enabled())
+
+        if psim.IsKeyPressed(psim.ImGuiKey_DownArrow):
+            pc_original = ps.get_point_cloud("original")
+            pc_original.set_enabled(not pc_original.is_enabled())
+
+        ps.imgui.Text(f"Sample {self.index + 1} / {len(self.loader)}")
+
+        if self.text_callback is not None:
+            self.text_callback(self.sample)
+
+        if old_index != self.index:
+            self.draw()
 
     def next(self):
-        self.cleanPCN.set_enabled(True)
-        self.corruptedPCN.set_enabled(False)
+        if self.index < len(self.loader) - 1:
+            self.index += 1
+            self.sample = self.loader[self.index][0]
 
     def prev(self):
-        self.cleanPCN.set_enabled(False)
-        self.corruptedPCN.set_enabled(True)
+        if self.index > 0:
+            self.index -= 1
+            self.sample = self.loader[self.index][0]
 
-    def draw_pair(self, clean: np.ndarray, corrupted: np.ndarray):
+    def draw(self):
         self.clear()
-
-        clean_shifted = clean.copy()
-        clean_shifted[:, 0] -= self.shift
-
-        corrupted_shifted = corrupted.copy()
-        corrupted_shifted[:, 0] += self.shift
-
-        self.cleanPCN = ps.register_point_cloud("clean", clean_shifted)
-        self.cleanPCN.set_radius(self.radius)
-        self.corruptedPCN = ps.register_point_cloud("corrupted", corrupted_shifted)
-        self.corruptedPCN.set_radius(self.radius)
-
-        def callback():
-            psim.Text("Use left/right arrow keys to navigate samples.")
-
-            if psim.Button("Left") or psim.IsKeyPressed(psim.ImGuiKey_LeftArrow):
-                self.prev()
-            if psim.Button("Right") or psim.IsKeyPressed(psim.ImGuiKey_RightArrow):
-                self.next()
-
-        ps.set_user_callback(callback)
+        if self.render_callback is not None:
+            self.render_callback(self.sample)
 
     def show(self):
-        clean, corrupted = self.pairs[self.index]
-        self.draw_pair(clean, corrupted)
+        self.draw()
+        ps.set_user_callback(self.gui_callback)
+        ps.set_ground_plane_mode("none")
+
         ps.show()
 
     def clear(self):
