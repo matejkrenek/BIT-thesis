@@ -1,9 +1,7 @@
 import polyscope as ps
 import polyscope.imgui as psim
-import numpy as np
 from .base import BaseViewer
 from torch.utils.data import Dataset
-from torch_geometric.loader import DataLoader
 
 
 class SampleViewer(BaseViewer):
@@ -21,9 +19,9 @@ class SampleViewer(BaseViewer):
 
         if not self.initialized:
             ps.init()
-            self.loader = list(DataLoader(dataset, batch_size=1, shuffle=False))
+            self.dataset = dataset
             self.index = 0
-            self.sample = self.loader[self.index][0]
+            self.sample = dataset[self.index]
             self.initialized = True
 
     def gui_callback(self):
@@ -45,7 +43,7 @@ class SampleViewer(BaseViewer):
             pc_original = ps.get_point_cloud("original")
             pc_original.set_enabled(not pc_original.is_enabled())
 
-        ps.imgui.Text(f"Sample {self.index + 1} / {len(self.loader)}")
+        ps.imgui.Text(f"Sample {self.index + 1} / {len(self.dataset)}")
 
         if self.text_callback is not None:
             self.text_callback(self.sample)
@@ -54,14 +52,14 @@ class SampleViewer(BaseViewer):
             self.draw()
 
     def next(self):
-        if self.index < len(self.loader) - 1:
+        if self.index < len(self.dataset) - 1:
             self.index += 1
-            self.sample = self.loader[self.index][0]
+            self.sample = self.dataset[self.index]
 
     def prev(self):
         if self.index > 0:
             self.index -= 1
-            self.sample = self.loader[self.index][0]
+            self.sample = self.dataset[self.index]
 
     def draw(self):
         self.clear()
