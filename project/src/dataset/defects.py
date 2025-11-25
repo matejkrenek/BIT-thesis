@@ -3,3 +3,13 @@ from .defect.noise import Noise
 from .defect.rotate import Rotate
 from .defect.scale import Scale
 from .defect.translate import Translate
+from .defect.local_dropout import LocalDropout
+from .defect.floating_cluster import FloatingCluster
+from .defect.outlier_points import OutlierPoints
+from .defect.large_missing_region import LargeMissingRegion
+from .defect.bridging_artifact import BridgingArtifact
+from .defect.surface_bridging_artifact import SurfaceBridgingArtifact
+from .defect.hair_like_noise import HairLikeNoise
+from .defect.surface_flattening import SurfaceFlattening
+from .defect.surface_bulging import SurfaceBulging
+from .defect.anisotropic_stretch_noise import AnisotropicStretchNoise

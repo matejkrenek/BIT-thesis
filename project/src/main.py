@@ -1,16 +1,35 @@
 from dataset.shapenet import ShapeNetDataset
 from dataset.augmented import AugmentedDataset
-from dataset.defects import Noise, Rotate, Scale, Translate
+from dataset.defects import (
+    Noise,
+    Rotate,
+    Scale,
+    Translate,
+    LocalDropout,
+    FloatingCluster,
+    OutlierPoints,
+    LargeMissingRegion,
+    BridgingArtifact,
+    SurfaceBridgingArtifact,
+    HairLikeNoise,
+    SurfaceFlattening,
+    SurfaceBulging,
+    AnisotropicStretchNoise,
+)
 from visualize.viewers import SampleViewer
 import polyscope as ps
 
 dataset = AugmentedDataset(
-    dataset=ShapeNetDataset(root="data/ShapeNet", split="train", categories=["Pistol"]),
+    dataset=ShapeNetDataset(
+        root="data/ShapeNet", split="train", categories=["Airplane"]
+    ),
     defects=[
-        Noise(sigma=0.01),
-        Rotate(z=45),
-        Scale(factor=1.2),
-        Translate(x=0.1, y=0.0, z=0.0),
+        AnisotropicStretchNoise(
+            radius=0.12,
+            stretch_factor=0.20,
+            max_regions=1,
+            jitter=0.001,
+        )
     ],
 )
 
@@ -19,13 +38,13 @@ def render_callback(sample):
     ps.register_point_cloud(
         "original",
         sample.original,
-        radius=0.003,
+        radius=0.0025,
         color=(0.0, 1.0, 0.0),
     )
     ps.register_point_cloud(
         "defected",
         sample.defected,
-        radius=0.003,
+        radius=0.0025,
         color=(1.0, 0.0, 0.0),
     )
 
