@@ -6,9 +6,9 @@ import json
 
 dotenv.load_dotenv()
 
-dataset = ShapeNetV2Dataset(
-    root="data/ShapeNet", split="train", categories=["airplane"]
-)
+dataset = ShapeNetV2Dataset(root="data/ShapeNetCore", categories=["airplane"])
+
+print(dataset[0])
 
 # downloader = HuggingFaceDownloader(
 #     "data/ShapeNetCore/raw",
