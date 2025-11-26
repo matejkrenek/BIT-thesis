@@ -1,6 +1,7 @@
 {
     "files.exclude": {
-        "**/.*": true,
-        "**/.gitignore": false
+        ".agent": true,
+        ".venv": true,
+        ".polyscope.ini": true,
     }
 }
