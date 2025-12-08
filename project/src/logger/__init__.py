@@ -1,14 +1,10 @@
 from loguru import logger
 import sys
 
+# Remove default logger
 logger.remove()
 
-logger.add(
-    "logs/log-{time:YYYY-MM-DD}.log",
-    rotation="10 MB",
-    retention="10 days",
-    format="{time} {level} {message}",
-)
+# Add stdout logger with custom format
 logger.add(
     sys.stdout,
     colorize=True,

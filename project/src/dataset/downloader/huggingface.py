@@ -3,17 +3,28 @@ from huggingface_hub import list_repo_files, hf_hub_download
 from logger import logger
 import zipfile
 import os
-from pathlib import Path
 
 
 class HuggingFaceDownloader(BaseDownloader):
+    """
+    Downloader for datasets from HuggingFace Hub.
+    Args:
+        local_dir (str): Local directory to save the dataset.
+        remote_dir (str): HuggingFace dataset repository identifier.
+        remote_file (Optional[str]): Specific file or list of files to download from the remote directory.
+        token (Optional[str]): Authentication token for accessing private repositories.
+        force (bool): Whether to force re-download if the dataset already exists locally.
+    """
 
     def _list_files(self):
+        """List all files in the remote HuggingFace dataset repository."""
         return list_repo_files(
             repo_id=self.remote_dir, token=self.token, repo_type="dataset"
         )
 
     def download(self) -> bool:
+        """Download dataset from HuggingFace Hub if not already present locally."""
+        # Check if dataset already exists locally
         if (
             os.path.exists(self.local_dir)
             and os.listdir(self.local_dir)
@@ -24,11 +35,11 @@ class HuggingFaceDownloader(BaseDownloader):
             )
             return True
 
+        # List files in the remote repository
         files = self._list_files()
 
-        # Check if the specified file exists in the repository
+        # Check if the specified file to be downloaded exists
         if self.remote_file:
-            # Ensure repo_file is a list
             repo_files = (
                 self.remote_file
                 if isinstance(self.remote_file, list)
@@ -47,7 +58,8 @@ class HuggingFaceDownloader(BaseDownloader):
             files = self.remote_file
 
         logger.info(f"[HuggingFaceDownloader] Downloading dataset from HuggingFace...")
-        # Download each file
+
+        # Download each file by file
         for file in files:
             logger.info(f"[HuggingFaceDownloader] Downloading file: {file}")
             hf_hub_download(
@@ -60,6 +72,7 @@ class HuggingFaceDownloader(BaseDownloader):
             logger.info(f"[HuggingFaceDownloader] Downloaded file: {file}")
 
         logger.info("[HuggingFaceDownloader] Unzipping files...")
+
         # Unzip all zips in the local directory
         for file in self.local_dir.iterdir():
             if file.suffix == ".zip":
@@ -68,9 +81,6 @@ class HuggingFaceDownloader(BaseDownloader):
                     zip_ref.extractall(self.local_dir)
                 logger.info(f"[HuggingFaceDownloader] Unzipped file: {file}")
                 file.unlink(missing_ok=True)
-
-        logger.info("[HuggingFaceDownloader] Removing cache...")
-        Path(os.path.join(self.local_dir, ".cache")).unlink(missing_ok=True)
 
         logger.info(f"[HuggingFaceDownloader] Dataset downloaded to: {self.local_dir}")
         return True

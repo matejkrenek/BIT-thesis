@@ -1,59 +1,24 @@
 from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defects import (
-    Noise,
-    Rotate,
-    Scale,
-    Translate,
-    LocalDropout,
-    FloatingCluster,
-    OutlierPoints,
-    LargeMissingRegion,
-    BridgingArtifact,
-    SurfaceBridgingArtifact,
-    HairLikeNoise,
-    SurfaceFlattening,
-    SurfaceBulging,
-    AnisotropicStretchNoise,
-)
-from visualize.viewers import SampleViewer
-import polyscope as ps
+from dataset.defect import LocalDropout, FloatingCluster
+from visualize.viewer import SampleViewer
+from dotenv import load_dotenv
+import open3d as o3d
 
+# Suppress Open3D log messages and load environment variables
+o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+load_dotenv()
+
+# Create an augmented dataset from shape net
 dataset = AugmentedDataset(
-    dataset=ShapeNetDataset(
-        root="data/ShapeNet", split="train", categories=["Airplane"]
-    ),
+    dataset=ShapeNetDataset(root="data/ShapeNetV2"),
     defects=[
-        LargeMissingRegion(removal_fraction=0.2),
+        LocalDropout(radius=0.05, regions=3, dropout_rate=0.75),
+        FloatingCluster(
+            cluster_radius=0.5, clusters=2, points_per_cluster=30, offset_factor=1.5
+        ),
     ],
 )
 
-
-def render_callback(sample):
-    ps.register_point_cloud(
-        "original",
-        sample.original,
-        radius=0.0025,
-        color=(0.0, 1.0, 0.0),
-    )
-    ps.register_point_cloud(
-        "defected",
-        sample.defected,
-        radius=0.0025,
-        color=(1.0, 0.0, 0.0),
-    )
-
-
-def text_callback(sample):
-    for defect, params in sample.log.items():
-        ps.imgui.Separator()
-        ps.imgui.TextColored((1.0, 1.0, 1.0, 1.0), f"Applied {defect}:")
-        for key, value in params.items():
-            ps.imgui.BulletText(f"{key}: {value}")
-
-
-viewer = SampleViewer(
-    dataset=dataset,
-    render_callback=render_callback,
-    text_callback=text_callback,
-)
-viewer.show()  # blocking call
+# Initialize and show the dataset sample viewer
+viewer = SampleViewer(dataset=dataset)
+viewer.show()

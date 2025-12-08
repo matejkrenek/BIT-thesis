@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 
 class BaseViewer(ABC):
-    """Abstract base class for visualization viewers."""
+    """Abstract base class for all viewers."""
 
     initialized = False
 
