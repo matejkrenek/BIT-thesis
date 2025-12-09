@@ -1,7 +1,5 @@
 {
     "files.exclude": {
-        ".agent": true,
-        ".venv": true,
         ".polyscope.ini": true,
     }
 }
