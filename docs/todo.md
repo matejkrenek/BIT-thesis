@@ -4,9 +4,10 @@ Tento soubor slouží k evidenci úkolů a poznámek týkajících se bakalářs
 
 ## První kroky
 
-- [ ] Připravit si šablonu pro bakalářskou práci
-- [ ] Sepsat požadavky na text bakalářské práce ze šablony
+- [x] Připravit si šablonu pro bakalářskou práci
+- [x] Sepsat požadavky na text bakalářské práce ze šablony
 - [ ] Vytvořit osnovu bakalářské práce
+- [ ] Potřebuju si nastudovat jak to vlastně všechno budu řešit a případně i více možností porovnat zatím jsem si jen nastaudovat že je problém a v čem ale nemám ještě představu jak to budu řešit, mám dataset ale nevím jak s ním pracovat
 - [ ] Naplánovat časový harmonogram pro psaní jednotlivých kapitol
 
 ## Požadavky na text ze šablony
@@ -82,3 +83,33 @@ Tento soubor slouží k evidenci úkolů a poznámek týkajících se bakalářs
 - citování blbostí - citujeme jen relevantní a odborné zdroje
 - necitování obrázků a tabulek - každý obrázek a tabulka musí mít svůj popisek a musí být v textu zmíněny a zároveň citovaný pokud je zdroj ne náš vlastní
 - nedělitelné mezery - např. mezi předložkou a podstatným jménem (správně: k~tomu, špatně: k tomu)
+
+## Rady od vedoucí práce
+
+- zdroj https://docs.google.com/document/d/1ahC7rqsxJr774eBRu6pNtQnqVuArVPBHKnqXwH-8vv8/edit?tab=t.0#heading=h.kxudquayj6h4
+
+#### Jak téma uchopit
+
+- ujasnit si
+  - představa výsledného řešení
+  - kdo je bude používat
+  - jak bude vypadat
+  - co bude umět
+- nespokojit se s prvním řešením a nápadem
+- širší rešerše přináší lepší nápady
+
+#### Psaní textu
+
+- Struktura textu
+  - úvod
+  - teoretická část
+  - state of the art
+  - návrh řešení
+  - implementace
+  - výsledky a testování
+  - závěr
+- Další doporučení
+  - moc nepoužívát první osobu (já, my)
+  - použít já pokud je to subjektivní hodnocení a chci zdůraznit svůj názor
+  - max číslovat do druhé úrovně (1.1, 1.2, 2.1, 2.2)
+  - každá kapitol a podkapitola by měla začínat úvodní větou, která říká co bude v kapitole řešeno
