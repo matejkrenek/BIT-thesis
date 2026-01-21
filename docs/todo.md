@@ -113,3 +113,14 @@ Tento soubor slouží k evidenci úkolů a poznámek týkajících se bakalářs
   - použít já pokud je to subjektivní hodnocení a chci zdůraznit svůj názor
   - max číslovat do druhé úrovně (1.1, 1.2, 2.1, 2.2)
   - každá kapitol a podkapitola by měla začínat úvodní větou, která říká co bude v kapitole řešeno
+
+## Otázky k zodpovězení
+
+- Vznikají chyby ve fotogrametrické rekonstrukci?
+- Jaké jsou příčiny těchto chyb?
+- Jaké to jsou chyby?
+- Lze tyto chyby detekovat automaticky?
+- Lze tyto chyby opravit automaticky?
+- Jakým chybám lze předcházet již při samotné fotogrammetrické rekonstrukci?
+- Jaké algoritmy a nástroje se používají pro detekci a opravu chyb ve fotogrammetrické rekonstrukci?
+- Jaké jsou metriky pro hodnocení kvality fotogrammetrické rekonstrukce?

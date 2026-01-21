@@ -47,7 +47,7 @@ class SampleViewer(BaseViewer):
         ps.imgui.Text(f"Sample {self.index + 1} / {len(self.dataset)}")
 
         # Display defect log
-        for defect, params in self.sample.log.items():
+        for defect, params in self.sample[2].items():
             ps.imgui.Separator()
             ps.imgui.TextColored((1.0, 1.0, 1.0, 1.0), f"Applied {defect}:")
             for key, value in params.items():
@@ -75,13 +75,13 @@ class SampleViewer(BaseViewer):
 
         ps.register_point_cloud(
             "original",
-            self.sample.original,
+            self.sample[0],
             radius=0.0025,
             color=(0.0, 1.0, 0.0),
         )
         ps.register_point_cloud(
             "defected",
-            self.sample.defected,
+            self.sample[1],
             radius=0.0025,
             color=(1.0, 0.0, 0.0),
         )

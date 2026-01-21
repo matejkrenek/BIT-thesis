@@ -2,6 +2,15 @@ from dataclasses import dataclass
 from torch.utils.data.dataset import Dataset
 from torch_geometric.data import Data
 from itertools import combinations
+import numpy as np
+from pytorch3d.ops import sample_farthest_points
+import torch
+
+
+def fps_subsample(points: np.ndarray, num_points: int):
+    pts = torch.from_numpy(points).unsqueeze(0)  # (1, N, 3)
+    sampled, _ = sample_farthest_points(pts, K=num_points)
+    return sampled.squeeze(0).numpy()
 
 
 class AugmentedDataset(Dataset):
@@ -26,7 +35,7 @@ class AugmentedDataset(Dataset):
 
         # Get the base data
         data = self.base[base_idx]
-        original = data.pos.cpu().numpy()
+        original = data.pos.numpy()
 
         # Apply the defect chain
         defect_chain = self.combinations[variant_id]
@@ -38,8 +47,15 @@ class AugmentedDataset(Dataset):
             defected, log = defect.apply(defected)
             defected_log[defect.name] = log
 
-        return Data(
-            original=original,
-            defected=defected,
-            log=defected_log,
-        )
+        # Normalize
+        original_centroid = original.mean(axis=0)
+        original_centered = original - original_centroid
+        defected_centered = defected - original_centroid
+
+        scale = np.max(np.linalg.norm(original_centered, axis=1))
+        original = original_centered / scale
+        defected = defected_centered / scale
+
+        defected = fps_subsample(defected, data.pos.shape[0])
+
+        return (original, defected)

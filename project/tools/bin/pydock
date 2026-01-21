@@ -1,0 +1,129 @@
+#!/bin/bash
+
+UNAMEOUT="$(uname -s)"
+
+# Verify operating system is supported...
+case "${UNAMEOUT}" in
+    Linux*)             MACHINE=linux;;
+    Darwin*)            MACHINE=mac;;
+    *)                  MACHINE="UNKNOWN"
+esac
+
+if [ "$MACHINE" == "UNKNOWN" ]; then
+    echo "Unsupported operating system [$(uname -s)]. Sail supports macOS, Linux, and Windows (WSL2)." >&2
+
+    exit 1
+fi
+
+# Determine if stdout is a terminal...
+if test -t 1; then
+    # Determine if colors are supported...
+    ncolors=$(tput colors)
+
+    if test -n "$ncolors" && test "$ncolors" -ge 8; then
+        BOLD="$(tput bold)"
+        YELLOW="$(tput setaf 3)"
+        GREEN="$(tput setaf 2)"
+        NC="$(tput sgr0)"
+    fi
+fi
+
+# Function that prints the available commands...
+function display_help {
+    echo "Docker on Py Docker"
+    echo
+    echo "${YELLOW}Usage:${NC}" >&2
+    echo "  pydock COMMAND [options] [arguments]"
+    echo
+    echo "Unknown commands are passed to the docker-compose binary."
+    echo
+    echo "${YELLOW}docker-compose Commands:${NC}"
+    echo "  ${GREEN}pydock ...${NC}                       Run an docker-compose command"
+    echo
+    echo "${YELLOW}Python Commands:${NC}"
+    echo "  ${GREEN}pydock python ...${NC}               Run an python command"
+    echo
+    echo "${YELLOW}PIP Commands:${NC}"
+    echo "  ${GREEN}pydock pip ...${NC}                   Run a snippet of PIP code"
+    echo
+    echo "${YELLOW}Bash Commands:${NC}"
+    echo "  ${GREEN}pydock bash ...${NC}                   Run Bash"
+    echo
+    exit 1
+}
+
+export APP_SERVICE=${APP_SERVICE:-"app"}
+
+# Function that outputs Sail is not running...
+function pydock_is_not_running {
+    echo "${BOLD}PyDock is not running.${NC}" >&2
+    echo "" >&2
+    echo "${BOLD}You may PyDock using the following commands:${NC} './tools/bin/pydock up' or './tools/bin/pydock up -d'" >&2
+
+    exit 1
+}
+
+# Proxy the "help" command...
+if [ $# -gt 0 ]; then
+    if [ "$1" == "help" ] || [ "$1" == "-h" ] || [ "$1" == "-help" ] || [ "$1" == "--help" ]; then
+        display_help
+    fi
+else
+    display_help
+fi
+
+# Define Docker Compose command prefix...
+DOCKER_COMPOSE=(docker-compose)
+
+EXEC="yes"
+ARGS=()
+
+# Proxy Python commands to the "python" binary on the application container...
+if [ "$1" == "python" ]; then
+    shift 1
+
+    if [ "$EXEC" == "yes" ]; then
+        [ ! -t 0 ] && ARGS+=(-T)
+        ARGS+=(exec app python "$@")
+    else
+        pydock_is_not_running
+    fi
+
+# Proxy docker-compose commands to the docker-compose binary on the application container...
+elif [ "$1" == "docker-compose" ]; then
+    shift 1
+
+    if [ "$EXEC" == "yes" ]; then
+        [ ! -t 0 ] && ARGS+=(-T)
+        ARGS+=(exec app "${DOCKER_COMPOSE[@]}")
+    else
+        pydock_is_not_running
+    fi
+
+# Proxy PIP commands to the "pip" binary on the application container...
+elif [ "$1" == "pip" ]; then
+    shift 1
+
+    if [ "$EXEC" == "yes" ]; then
+        [ ! -t 0 ] && ARGS+=(-T)
+        ARGS+=(exec app pip "$@")
+    else
+        pydock_is_not_running
+    fi
+
+# Proxy Bash commands to the "bash" binary on the application container...
+elif [ "$1" == "bash" ]; then
+    shift 1
+
+    if [ "$EXEC" == "yes" ]; then
+        [ ! -t 0 ] && ARGS+=(-T)
+        ARGS+=(exec app bash "$@")
+    else
+        pydock_is_not_running
+    fi
+
+else
+    ARGS+=("$@")
+fi
+
+"${DOCKER_COMPOSE[@]}" "${ARGS[@]}"
