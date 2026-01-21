@@ -28,6 +28,14 @@ To install the required dependencies, run:
 pip install -r requirements.txt
 ```
 
+## Installation Conda
+Create a conda environment and activate it:
+
+```bash
+conda env create -f environment.yml
+conda activate bit-thesis
+```
+
 ## Usage
 
 To run dataset visualization script, use the following command:

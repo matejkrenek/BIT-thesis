@@ -22,11 +22,12 @@ load_dotenv()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-ROOT_DATA = "data/ShapeNetV2"
-CHECKPOINT_DIR = "checkpoints"
+DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
+ROOT_DATA =  DATA_FOLDER_PATH + "/data/ShapeNetV2"
+CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-BATCH_SIZE = 8
+BATCH_SIZE = 32
 LR = 1e-3
 EPOCHS = 200
 SAVE_EVERY = 10  # checkpoint interval
@@ -58,7 +59,7 @@ train_loader = DataLoader(
     train_ds,
     batch_size=1 if OVERFIT else BATCH_SIZE,
     shuffle=not OVERFIT,
-    num_workers=8,
+    num_workers=12,
     persistent_workers=True,
     pin_memory=True,
 )
@@ -67,7 +68,7 @@ val_loader = DataLoader(
     val_ds,
     batch_size=1 if OVERFIT else BATCH_SIZE,
     shuffle=False,
-    num_workers=8,
+    num_workers=12,
 )
 
 model = PCNRepairNet(
@@ -104,8 +105,8 @@ def train_epoch():
     total_loss = 0.0
 
     for original, defected in train_loader:
-        defected = defected.to(DEVICE)
-        original = original.to(DEVICE)
+        defected = defected.to(DEVICE, non_blocking=True)
+        original = original.to(DEVICE, non_blocking=True)
 
         pred = model(defected)
         loss = model.compute_loss(pred, original)
@@ -150,6 +151,7 @@ start_time = time.time()
 for epoch in epoch_bar:
     train_loss = train_epoch()
     val_loss = val_epoch()
+
 
     scheduler.step()
 
