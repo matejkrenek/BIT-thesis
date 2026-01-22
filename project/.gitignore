@@ -8,3 +8,4 @@ data
 logs
 .polyscope.ini
 imgui.ini
+checkpoints

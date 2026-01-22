@@ -34,6 +34,12 @@ SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_epoch_50.pt"
 OVERFIT = False  # True = overfit test
 
+def safe_collate(batch):
+    batch = [b for b in batch if b is not None]
+    if len(batch) == 0:
+        return None
+    return torch.utils.data.default_collate(batch)
+
 # Create an augmented dataset from shape net
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
@@ -61,6 +67,7 @@ train_loader = DataLoader(
     shuffle=not OVERFIT,
     num_workers=12,
     persistent_workers=True,
+    collate_fn=safe_collate,
     pin_memory=True,
 )
 
@@ -68,6 +75,7 @@ val_loader = DataLoader(
     val_ds,
     batch_size=1 if OVERFIT else BATCH_SIZE,
     shuffle=False,
+    collate_fn=safe_collate,
     num_workers=12,
 )
 
@@ -104,7 +112,10 @@ def train_epoch():
     model.train()
     total_loss = 0.0
 
-    for original, defected in train_loader:
+    for batch in train_loader:
+        if batch is None:
+            continue
+        original, defected = batch
         defected = defected.to(DEVICE, non_blocking=True)
         original = original.to(DEVICE, non_blocking=True)
 
@@ -125,7 +136,10 @@ def val_epoch():
     model.eval()
     total_loss = 0.0
 
-    for defected, original in val_loader:
+    for batch in val_loader:
+        if batch is None:
+            continue
+        original, defected = batch
         defected = defected.to(DEVICE)
         original = original.to(DEVICE)
 

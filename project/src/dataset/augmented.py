@@ -35,6 +35,10 @@ class AugmentedDataset(Dataset):
 
         # Get the base data
         data = self.base[base_idx]
+
+        if not isinstance(data, Data) or not hasattr(data, "pos"):
+            return None  # vadný vzorek
+
         original = data.pos.numpy()
 
         # Apply the defect chain
