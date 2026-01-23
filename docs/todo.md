@@ -124,3 +124,99 @@ Tento soubor slouží k evidenci úkolů a poznámek týkajících se bakalářs
 - Jakým chybám lze předcházet již při samotné fotogrammetrické rekonstrukci?
 - Jaké algoritmy a nástroje se používají pro detekci a opravu chyb ve fotogrammetrické rekonstrukci?
 - Jaké jsou metriky pro hodnocení kvality fotogrammetrické rekonstrukce?
+
+# Moje závěry a poznámky k textu
+
+### Cíl práce
+
+Cílem práce je navrhnout a implementovat deep learning model pro automatickou opravu defektů bodových mračen vzniklých při fotogrammetrické rekonstrukci, vytrénovaný na synteticky poškozených datech z databáze ShapeNet, a ověřit jeho funkčnost na syntetických i reálných datech.
+
+### Osnovu
+
+1. Úvod
+   - kontext a motivace
+   - problém nekvalitních výstupů a defektů
+   - omezení manuálních a klasických metod
+   - cíl práce a její přínos
+   - stručná informace o struktuře práce
+
+2. Fotogrammetrická rekonstrukce a vznik defektů
+   - principy fotogrammetrické rekonstrukce
+   - běžné defekty a jejich příčiny
+   - dopady defektů na aplikace
+   - možné prevence a jejich limity
+
+3. Reprezentace 3D dat a opravy defektů
+   - Reprezentace 3D objektů
+   - Tradiční metody opravy 3D dat
+   - Deep learning pro opravu bodových mračen
+
+4. Příprava dat pro trénování modelu
+   - Použitý dataset
+   - Syntetická simulace defektů
+   - Trénovací a validační rozdělení dat
+
+5. Návrh a implementace modelu
+   - Architektura modelu
+   - Úpravy architektury a trénování
+   - Implementační detaily
+
+6. Experimenty a vyhodnocení výsledků
+   - Hodnoticí metriky
+   - Porovnání s baseline metodami
+   - Testování na reálných datech z fotogrammetrie
+
+# Průběžná obhajoba
+
+## Struktura prezentace
+
+### 1. Název, problém a cíl
+
+- **Na slajdu**
+  - Název práce
+  - Jméno autora
+  - Jméno vedoucího
+  - 1 obrázek fotogrammetrického modelu s chybami (díry, rozpadlá geometrie)
+- **Co říct**
+  - Zabývám se opravou defektů ve 3D modelech vzniklých fotogrammetrickou rekonstrukcí
+  - O jaké typické defekty jde (díry, šum, rozpadlá geometrie) - špatné světlo, úhel, povrh
+  - Tyto modely s defektama komplikují další využití (AR/VR, 3D tisk, analýza)
+  - Cílem je navrhnout a implementovat deep learning model pro automatickou opravu těchto defektů
+
+### 2. Návrh řešení
+
+- **Na slajdu**
+  - Schéma návrhu řešení
+
+    **ShapeNet** -> **pointcloud** -> **syntetické defekty** -> **Model** (baseline PCN, Sota difůzní/transformer based model s autoencoderem) -> **Validace a testování** (Chamfer Distance) -> **Opravený pointcloud** -> **Převod na triangulovanou síť**
+
+  - barevně vyznačeno co je hotové, co rozpracované a co zbývá
+
+- **Co říct**
+  - vysvětlit návrh řešení a u každé fáze něco říct
+  - pracuji s point cloud
+  - síť bude trénována na synteticky poškozených datech z ShapeNet
+  - mam hotovou datovou pipeline se syntetickou simulací defektů z fotogrammetrie (ShapNet)
+  - Vyzkoušenž proces trénování na baseline modelu (baseline PCN)
+  - Pár vět o plánovaných částech na letní semestr
+
+### 3. Dataset
+
+- **Na slajdu**
+  - obrázek dat před a po přidání defektů
+  - typy defektů - díry, šum, velké chybějící části
+  - reprezentace a base dataset, syntetická simulace defektů
+- **Co říct**
+  - Pracuji s databází ShapeNet - 3D modely objektů z různých kategorií
+  - Pro simulaci defektů jsem implementoval metody pro vytváření děr, přidání šumu a odstranění částí modelů
+  - Tímto způsobem jsem vytvořil trénovací dataset s různými typy defektů
+  - vyzkoušel jsem si treńování na baseline modelu (PCN) na serveru sophie
+
+### 4. Poslední slajd
+
+- **Na slajdu**
+  - stejné schéma ze slajdu 2 s barevným vyznačením pokroku
+- **Co říct**
+  - uzavřit prezentaci
+  - shrnout co je hotové jednou větou
+  - co zbývá dokončit jednou větou

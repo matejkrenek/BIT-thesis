@@ -147,7 +147,7 @@ class ShapeNetDataset(InMemoryDataset):
         if self.transform:
             data = self.transform(data)
         return data
-    
+
     def _remove_processed(self):
         if osp.exists(self.processed_dir):
             for f in os.listdir(self.processed_dir):

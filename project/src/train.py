@@ -1,56 +1,60 @@
 from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defect import (
-    LargeMissingRegion,
-)
-from visualize.viewer import SampleViewer
-from dotenv import load_dotenv
+from dataset.defect import LargeMissingRegion, LocalDropout
 import open3d as o3d
 import numpy as np
-from torch.utils.data import Subset, DataLoader, random_split
-from models.pcn import PCNRepairNet
-import torch
 import os
-from tqdm import tqdm
+from dotenv import load_dotenv
+import torch
+from torch.utils.data import Subset, DataLoader, random_split
 import time
+from pytorch3d.ops import sample_farthest_points
 import safe_gpu
+from tqdm import tqdm
+from models import PCN
 
 safe_gpu.claim_gpus(1)
 
-# Suppress Open3D log messages and load environment variables
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+print(DEVICE)
 
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
 ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 LR = 1e-3
-EPOCHS = 200
+EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
-RESUME_FROM = None  # e.g. "checkpoints/pcn_epoch_50.pt"
-OVERFIT = False  # True = overfit test
+RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
+OVERFIT = True  # True = overfit test
 
 
-def safe_collate(batch):
-    batch = [b for b in batch if b is not None]
-    if len(batch) == 0:
-        return None
-    return torch.utils.data.default_collate(batch)
-
-
-# Create an augmented dataset from shape net
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
         LargeMissingRegion(removal_fraction=0.1),
-        # OutlierPoints(num_points=50, scale_factor=2.0, mode="gaussian"),
-        # SurfaceFlattening(radius=0.1, plane_jitter=0.0002, max_regions=1),
     ],
 )
+
+
+def pcn_collate(batch):
+    originals, defecteds = zip(*batch)
+
+    originals = torch.stack(originals, dim=0)
+
+    lengths = torch.tensor([pc.shape[0] for pc in defecteds], dtype=torch.long)
+    max_n = lengths.max().item()
+
+    padded = torch.zeros(len(defecteds), max_n, 3)
+    for i, pc in enumerate(defecteds):
+        padded[i, : pc.shape[0]] = pc
+
+    return originals, padded, lengths
 
 
 # Overfit setup (1–2 samples only)
@@ -65,9 +69,9 @@ train_loader = DataLoader(
     train_ds,
     batch_size=1 if OVERFIT else BATCH_SIZE,
     shuffle=not OVERFIT,
-    num_workers=12,
+    num_workers=4,
     persistent_workers=True,
-    collate_fn=safe_collate,
+    collate_fn=pcn_collate,
     pin_memory=True,
 )
 
@@ -75,15 +79,11 @@ val_loader = DataLoader(
     val_ds,
     batch_size=1 if OVERFIT else BATCH_SIZE,
     shuffle=False,
-    collate_fn=safe_collate,
-    num_workers=12,
+    collate_fn=pcn_collate,
+    num_workers=4,
 )
 
-model = PCNRepairNet(
-    feat_dim=1024,
-    num_coarse=1024,
-    grid_size=4,
-).to(DEVICE)
+model = PCN(num_dense=16384, latent_dim=1024, grid_size=4).to(DEVICE)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
@@ -112,15 +112,20 @@ def train_epoch():
     model.train()
     total_loss = 0.0
 
-    for batch in train_loader:
-        if batch is None:
-            continue
-        original, defected = batch
-        defected = defected.to(DEVICE, non_blocking=True)
-        original = original.to(DEVICE, non_blocking=True)
+    for originals, padded, lengths in train_loader:
+        originals = originals.to(DEVICE, non_blocking=True)
+        padded = padded.to(DEVICE, non_blocking=True)
+        lengths = lengths.to(DEVICE)
+
+        defected, _ = sample_farthest_points(
+            padded,
+            K=originals.shape[1],
+            lengths=lengths,
+        )
 
         pred = model(defected)
-        loss = model.compute_loss(pred, original)
+        exit()
+        loss = model.compute_loss(pred, originals)
 
         optimizer.zero_grad()
         loss.backward()
@@ -136,15 +141,19 @@ def val_epoch():
     model.eval()
     total_loss = 0.0
 
-    for batch in val_loader:
-        if batch is None:
-            continue
-        original, defected = batch
-        defected = defected.to(DEVICE)
-        original = original.to(DEVICE)
+    for originals, padded, lengths in val_loader:
+        originals = originals.to(DEVICE, non_blocking=True)
+        padded = padded.to(DEVICE, non_blocking=True)
+        lengths = lengths.to(DEVICE)
+
+        defected, _ = sample_farthest_points(
+            padded,
+            K=originals.shape[1],
+            lengths=lengths,
+        )
 
         pred = model(defected)
-        loss = model.compute_loss(pred, original)
+        loss = model.compute_loss(pred, originals)
 
         total_loss += loss.item()
 
@@ -192,20 +201,7 @@ for epoch in epoch_bar:
                 "scheduler_state": scheduler.state_dict(),
                 "val_loss": val_loss,
             },
-            os.path.join(CHECKPOINT_DIR, "pcn_best.pt"),
-        )
-
-    # Periodic checkpoint
-    if epoch % SAVE_EVERY == 0:
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state": model.state_dict(),
-                "optimizer_state": optimizer.state_dict(),
-                "scheduler_state": scheduler.state_dict(),
-                "val_loss": val_loss,
-            },
-            os.path.join(CHECKPOINT_DIR, f"pcn_epoch_{epoch}.pt"),
+            os.path.join(CHECKPOINT_DIR, "pcn_v2_best.pt"),
         )
 
 print("[INFO] Training finished.")

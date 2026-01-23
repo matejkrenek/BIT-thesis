@@ -1,23 +1,22 @@
-from dataclasses import dataclass
 from torch.utils.data.dataset import Dataset
 from torch_geometric.data import Data
 from itertools import combinations
 import numpy as np
-from pytorch3d.ops import sample_farthest_points
 import torch
 
 
-def fps_subsample(points: np.ndarray, num_points: int):
-    pts = torch.from_numpy(points).unsqueeze(0)  # (1, N, 3)
-    sampled, _ = sample_farthest_points(pts, K=num_points)
-    return sampled.squeeze(0).numpy()
-
-
 class AugmentedDataset(Dataset):
-    def __init__(self, dataset: Dataset, defects: list = [], num_variants: int = None):
+    def __init__(
+        self,
+        dataset: Dataset,
+        defects: list = [],
+        num_variants: int = None,
+        detailed: bool = False,
+    ):
         self.base = dataset
         self.combinations = self._generate_combinations(defects)
         self.num_variants = num_variants or len(self.combinations)
+        self.detailed = detailed
 
     def _generate_combinations(self, defects: list) -> list:
         combos = []
@@ -57,9 +56,11 @@ class AugmentedDataset(Dataset):
         defected_centered = defected - original_centroid
 
         scale = np.max(np.linalg.norm(original_centered, axis=1))
-        original = original_centered / scale
-        defected = defected_centered / scale
+        original = torch.from_numpy(original_centered / scale).float()
+        defected = torch.from_numpy(defected_centered / scale).float()
 
-        defected = fps_subsample(defected, data.pos.shape[0])
-
-        return (original, defected)
+        return (
+            (original, defected)
+            if not self.detailed
+            else (original, defected, defected_log)
+        )

@@ -1,50 +1,70 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class PCNDecoder(nn.Module):
-    def __init__(
-        self,
-        feat_dim: int = 1024,
-        num_coarse: int = 1024,
-        grid_size: int = 4,
-    ):
+    def __init__(self, num_dense=16384, latent_dim=1024, grid_size=4):
         super().__init__()
 
-        self.num_coarse = num_coarse
+        assert num_dense % (grid_size**2) == 0
+
+        self.num_dense = num_dense
         self.grid_size = grid_size
-        self.num_fine = num_coarse * (grid_size**2)
+        self.num_coarse = num_dense // (grid_size**2)
 
-        self.fc1 = nn.Linear(feat_dim, 1024)
-        self.fc2 = nn.Linear(1024, 1024)
-        self.fc3 = nn.Linear(1024, num_coarse * 3)
+        self.mlp = nn.Sequential(
+            nn.Linear(latent_dim, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 3 * self.num_coarse),
+        )
 
-        self.fold1 = nn.Linear(feat_dim + 3 + 2, 512)
-        self.fold2 = nn.Linear(512, 512)
-        self.fold3 = nn.Linear(512, 3)
+        self.final_conv = nn.Sequential(
+            nn.Conv1d(latent_dim + 3 + 2, 512, 1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(512, 512, 1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(512, 3, 1),
+        )
 
-    def forward(self, feat: torch.Tensor):
-        B = feat.shape[0]
+        # folding seed (registered as buffer → správně se přesouvá mezi CPU/GPU)
+        a = torch.linspace(-0.05, 0.05, steps=grid_size).view(1, grid_size)
+        b = torch.linspace(-0.05, 0.05, steps=grid_size).view(grid_size, 1)
 
-        x = F.relu(self.fc1(feat))
-        x = F.relu(self.fc2(x))
-        coarse = self.fc3(x).view(B, self.num_coarse, 3)
+        grid = torch.cat(
+            [
+                a.expand(grid_size, grid_size).reshape(1, -1),
+                b.expand(grid_size, grid_size).reshape(1, -1),
+            ],
+            dim=0,
+        ).view(1, 2, grid_size**2)
 
-        lin = torch.linspace(-0.05, 0.05, self.grid_size, device=feat.device)
-        gx, gy = torch.meshgrid(lin, lin, indexing="ij")
-        grid = torch.stack([gx, gy], dim=-1).view(1, 1, -1, 2)
+        self.register_buffer("folding_seed", grid)
 
-        S = self.grid_size**2
-        grid = grid.repeat(B, self.num_coarse, 1, 1).view(B, -1, 2)
+    def forward(self, latent):
+        B = latent.shape[0]
 
-        coarse_rep = coarse.unsqueeze(2).repeat(1, 1, S, 1).view(B, -1, 3)
-        feat_rep = feat.unsqueeze(1).repeat(1, coarse_rep.shape[1], 1)
+        coarse = self.mlp(latent).view(B, self.num_coarse, 3)  # (B, Nc, 3)
 
-        fold_in = torch.cat([feat_rep, coarse_rep, grid], dim=-1)
-        y = F.relu(self.fold1(fold_in))
-        y = F.relu(self.fold2(y))
-        delta = self.fold3(y)
+        point_feat = (
+            coarse.unsqueeze(2)
+            .expand(-1, -1, self.grid_size**2, -1)
+            .reshape(B, self.num_dense, 3)
+            .transpose(2, 1)
+        )  # (B, 3, Nf)
 
-        fine = coarse_rep + delta
-        return coarse, fine
+        seed = (
+            self.folding_seed.unsqueeze(2)
+            .expand(B, -1, self.num_coarse, -1)
+            .reshape(B, 2, self.num_dense)
+        )
+
+        latent_feat = latent.unsqueeze(2).expand(-1, -1, self.num_dense)
+
+        feat = torch.cat([latent_feat, seed, point_feat], dim=1)
+        fine = self.final_conv(feat) + point_feat
+
+        return coarse.contiguous(), fine.transpose(1, 2).contiguous()

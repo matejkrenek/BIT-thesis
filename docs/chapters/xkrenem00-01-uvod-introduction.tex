@@ -1,3 +1,19 @@
 \chapter{Úvod}
 
-Tento text slouží jako ukázkový obsah šablony a současně rekapituluje.
+Fotogrammetrická rekonstrukce je v dnešní době téměř jedinou spolehlivou a neodmistlytelnou součástí
+moderního 3D modelování reálného světa. Díky rozšířené dostupnosti kvalitních snimacích zařízení se uplatňuje 
+v široké škále odvětví od dokumentace kulturního dědictví, průmyslovou kontrolu, 3D tisk až po herní průmysl. 
+Častým výstupem fotogrammetrického procesu je bodové mračno, které reprezentuje povrch rekonstruovaného objektu
+pomocí diskrétní množiny bodů v prostoru.
+
+Kvalita výsledné rekonstrukce je silně závisla na kvalitě vstupních dat i na podmínkách snímání. V praxi často
+dochází ke vzniku různých defektů, mezi které patří zejména úplně chybějící části objektu, lokální díry v datech,
+nerovnoměrné hustota rozložení bodů nebo jak povrchový tak okolní šum. Přitomnost takovýchto defektů výrazně omezuje
+další využití dat ať už pro vizualizaci nebo pro další zpracování například při převodu na topologickou reprezentaci
+objektu typicky do polygonální sítě.
+
+Oprava defektů v bodových mračnech je tradičně řešena pomocí geometrických a statistických metod, které využívají lokální informace o tvaru povrchu. Tyto přístupy však zpravidla selhávají v případech, kdy chybí větší souvislé oblasti dat nebo kdy je geometrie objektu složitá a nelze ji spolehlivě odvodit pouze z okolních bodů. V posledních letech se proto do popředí zájmu dostávají metody založené na hlubokém učení, které umožňují modelovat globální strukturu objektů a využívat znalosti získané z rozsáhlých datových sad trojrozměrných tvarů.
+
+Tato práce se zaměřuje na automatickou opravu defektů bodových mračen vzniklých při fotogrammetrické rekonstrukci s využitím hlubokého učení. Navržené řešení je založeno na neuronové síti pracující přímo s bodovými mračny, jejímž cílem je rekonstruovat chybějící části objektu a potlačit nežádoucí artefakty ve vstupních datech. Model je trénován na synteticky degradovaných datech vytvořených z databáze čistých 3D modelů, což umožňuje řízeně simulovat různé typy defektů a objektivně hodnotit kvalitu opravy vůči referenčním datům.
+
+Součástí práce je rovněž porovnání navrženého přístupu s vybranými klasickými metodami a experimentální vyhodnocení dosažených výsledků pomocí vhodných metrik. Funkčnost řešení je ověřena jak na syntetických datech, tak na reálných výstupech fotogrammetrické rekonstrukce. Cílem práce je ověřit použitelnost hlubokého učení pro opravu bodových mračen a navrhnout postup, který může sloužit jako základ pro další výzkum nebo praktické nasazení v oblasti zpracování 3D dat.
