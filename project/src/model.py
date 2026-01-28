@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from visualize.viewer import SampleViewer
 from dataset import ShapeNetDataset, AugmentedDataset
 from dataset.defect import LargeMissingRegion, LocalDropout
-from models.pcn import PCNRepairNet
+from models import PCN
 import polyscope as ps
 
 load_dotenv()
@@ -19,7 +19,7 @@ os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
-        LargeMissingRegion(removal_fraction=0.3),
+        LargeMissingRegion(removal_fraction=0.1),
     ],
 )
 
@@ -29,51 +29,24 @@ dataset = AugmentedDataset(
 # viewer.show()
 
 # Load the pre-trained model
-model = PCNRepairNet(
-    feat_dim=1024,
-    num_coarse=1024,
-    grid_size=4,
-)
-checkpoint = torch.load(CHECKPOINT_DIR + "/pcn_best.pt", map_location=device)
+model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
+checkpoint = torch.load(CHECKPOINT_DIR + "/pcn_v2_best.pt", map_location=device)
 model.load_state_dict(checkpoint["model_state"])
 model.to(device)
 model.eval()
 
-original, defected = dataset[9201]
+print(checkpoint["val_loss"])
 
-original = torch.from_numpy(original).float().unsqueeze(0).to(device)
-defected = torch.from_numpy(defected).float().unsqueeze(0).to(device)
+original, defected = dataset[0]
+
+original = original.unsqueeze(0).to(device)
+defected = defected.float().unsqueeze(0).to(device)
 
 from pytorch3d.loss import chamfer_distance
 
 with torch.no_grad():
     coarse, completed = model(defected)  # ⬅️ ROZBALIT
 
-    cd, _ = chamfer_distance(completed, defected)
+    cd, _ = chamfer_distance(defected, original)
     print(f"Chamfer Distance: {cd.item():.6f}")
 
-print(original.shape, defected.shape, completed.shape)
-
-ps.init()
-
-ps.register_point_cloud(
-    "original",
-    original.squeeze(0).detach().cpu().numpy(),
-    radius=0.0025,
-    color=(0.0, 1.0, 0.0),
-)
-ps.register_point_cloud(
-    "defected",
-    defected.squeeze(0).detach().cpu().numpy(),
-    radius=0.0025,
-    color=(1.0, 0.0, 0.0),
-)
-
-ps.register_point_cloud(
-    "completed",
-    completed.squeeze(0).detach().cpu().numpy(),
-    radius=0.0025,
-    color=(0, 0.0, 1.0),
-)
-
-ps.show()

@@ -19,19 +19,17 @@ load_dotenv()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-print(DEVICE)
-
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
 ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 LR = 1e-3
 EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
-OVERFIT = True  # True = overfit test
+OVERFIT = False  # True = overfit test
 
 
 dataset = AugmentedDataset(
@@ -43,6 +41,10 @@ dataset = AugmentedDataset(
 
 
 def pcn_collate(batch):
+    batch = [b for b in batch if b is not None]
+    if len(batch) == 0:
+        return None, None, None
+    
     originals, defecteds = zip(*batch)
 
     originals = torch.stack(originals, dim=0)
@@ -59,7 +61,8 @@ def pcn_collate(batch):
 
 # Overfit setup (1–2 samples only)
 if OVERFIT:
-    dataset = Subset(dataset, [0, 1])
+    dataset = Subset(dataset, list(range(BATCH_SIZE)))
+    BATCH_SIZE = int(BATCH_SIZE / 2)
 
 train_size = int(0.9 * len(dataset))
 val_size = len(dataset) - train_size
@@ -67,7 +70,7 @@ train_ds, val_ds = random_split(dataset, [train_size, val_size])
 
 train_loader = DataLoader(
     train_ds,
-    batch_size=1 if OVERFIT else BATCH_SIZE,
+    batch_size=BATCH_SIZE,
     shuffle=not OVERFIT,
     num_workers=4,
     persistent_workers=True,
@@ -77,7 +80,7 @@ train_loader = DataLoader(
 
 val_loader = DataLoader(
     val_ds,
-    batch_size=1 if OVERFIT else BATCH_SIZE,
+    batch_size=BATCH_SIZE,
     shuffle=False,
     collate_fn=pcn_collate,
     num_workers=4,
@@ -113,6 +116,9 @@ def train_epoch():
     total_loss = 0.0
 
     for originals, padded, lengths in train_loader:
+        if originals is None or padded is None or lengths is None:
+            continue
+
         originals = originals.to(DEVICE, non_blocking=True)
         padded = padded.to(DEVICE, non_blocking=True)
         lengths = lengths.to(DEVICE)
@@ -124,7 +130,6 @@ def train_epoch():
         )
 
         pred = model(defected)
-        exit()
         loss = model.compute_loss(pred, originals)
 
         optimizer.zero_grad()
@@ -141,7 +146,11 @@ def val_epoch():
     model.eval()
     total_loss = 0.0
 
+
     for originals, padded, lengths in val_loader:
+        if originals is None or padded is None or lengths is None:
+            continue
+        
         originals = originals.to(DEVICE, non_blocking=True)
         padded = padded.to(DEVICE, non_blocking=True)
         lengths = lengths.to(DEVICE)
@@ -188,7 +197,7 @@ for epoch in epoch_bar:
         train=f"{train_loss:.4f}",
         val=f"{val_loss:.4f}",
         eta=f"{eta_seconds//60}m {eta_seconds%60}s",
-    )
+    )   
 
     # Save BEST model
     if val_loss < best_val:

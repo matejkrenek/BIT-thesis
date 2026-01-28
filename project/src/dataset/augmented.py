@@ -43,9 +43,11 @@ class AugmentedDataset(Dataset):
         # Apply the defect chain
         defect_chain = self.combinations[variant_id]
 
+        torch.manual_seed(idx)
+        np.random.seed(idx)
+
         defected = original.copy()
         defected_log = {}
-
         for defect in defect_chain:
             defected, log = defect.apply(defected)
             defected_log[defect.name] = log
@@ -58,7 +60,7 @@ class AugmentedDataset(Dataset):
         scale = np.max(np.linalg.norm(original_centered, axis=1))
         original = torch.from_numpy(original_centered / scale).float()
         defected = torch.from_numpy(defected_centered / scale).float()
-
+        
         return (
             (original, defected)
             if not self.detailed
