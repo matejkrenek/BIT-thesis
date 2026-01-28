@@ -23,4 +23,4 @@ class PCN(nn.Module):
         loss_coarse, _ = chamfer_distance(coarse, target)
         loss_fine, _ = chamfer_distance(fine, target)
 
-        return loss_coarse + loss_fine
+        return loss_coarse + 0.25 * loss_fine

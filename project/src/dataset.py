@@ -1,5 +1,12 @@
 from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defect import LargeMissingRegion, LocalDropout
+from dataset.defect import (
+    LargeMissingRegion,
+    LocalDropout,
+    Noise,
+    FloatingCluster,
+    AnisotropicStretchNoise,
+    OutlierPoints,
+)
 import open3d as o3d
 import numpy as np
 import os
@@ -7,6 +14,7 @@ from dotenv import load_dotenv
 import torch
 from torch.utils.data import DataLoader
 import time
+import polyscope as ps
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -19,11 +27,58 @@ ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
-        LargeMissingRegion(removal_fraction=0.1),
-        LargeMissingRegion(removal_fraction=0.5),
-        LocalDropout(radius=0.01, regions=1, dropout_rate=0.8),
+        LargeMissingRegion(removal_fraction=0.25),
+        LargeMissingRegion(removal_fraction=0.25),
+        LocalDropout(radius=0.05, regions=3, dropout_rate=1),
+        Noise(sigma=0.005),
+        OutlierPoints(num_points=120, scale_factor=2.0, mode="uniform"),
     ],
 )
+
+ps.init()
+
+original, defected = dataset[0]
+
+ps.register_point_cloud(
+    "original",
+    original,
+    radius=0.0025,
+    color=(0.0, 1.0, 0.0),
+)
+
+ps.register_point_cloud(
+    "defected1",
+    dataset[0][1],
+    radius=0.0025,
+    color=(1.0, 0.0, 0.0),
+)
+
+ps.register_point_cloud(
+    "defected2",
+    dataset[1][1],
+    radius=0.0025,
+    color=(1.0, 0.0, 0.0),
+)
+
+ps.register_point_cloud(
+    "defected3",
+    dataset[2][1],
+    radius=0.0025,
+    color=(1.0, 0.0, 0.0),
+)
+
+ps.register_point_cloud(
+    "defected4",
+    dataset[7][1],
+    radius=0.0025,
+    color=(1.0, 0.0, 0.0),
+)
+
+
+ps.show()
+
+
+exit()
 
 from pytorch3d.ops import sample_farthest_points
 

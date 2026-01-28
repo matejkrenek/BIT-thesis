@@ -1,5 +1,5 @@
 from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defect import LargeMissingRegion, LocalDropout
+from dataset.defect import LargeMissingRegion, LocalDropout, Rotate, Noise
 import open3d as o3d
 import numpy as np
 import os
@@ -19,8 +19,6 @@ load_dotenv()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-print(DEVICE)
-
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
 ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
@@ -33,13 +31,20 @@ SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
 OVERFIT = True  # True = overfit test
 
-
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
         LargeMissingRegion(removal_fraction=0.1),
+        LargeMissingRegion(removal_fraction=0.15),
+        LargeMissingRegion(removal_fraction=0.05),
+        LargeMissingRegion(removal_fraction=0.25),
+        LocalDropout(radius=0.05, regions=5, dropout_rate=0.8),
+        Noise(0.002),
+        Rotate(90, 90, 90),
     ],
 )
+train_losses = []
+val_losses = []
 
 
 def pcn_collate(batch):
@@ -124,7 +129,6 @@ def train_epoch():
         )
 
         pred = model(defected)
-        exit()
         loss = model.compute_loss(pred, originals)
 
         optimizer.zero_grad()
@@ -171,9 +175,30 @@ epoch_bar = tqdm(
 
 start_time = time.time()
 
+import matplotlib.pyplot as plt
+
+
+def save_loss_plot(train_losses, val_losses, path):
+    plt.figure(figsize=(6, 4))
+    plt.plot(train_losses, label="Train")
+    plt.plot(val_losses, label="Validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Chamfer Distance")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.close()
+
+
 for epoch in epoch_bar:
     train_loss = train_epoch()
     val_loss = val_epoch()
+
+    train_losses.append(train_loss)
+    val_losses.append(val_loss)
+
+    save_loss_plot(train_losses, val_losses, "loss_curve.png")
 
     scheduler.step()
 
@@ -203,5 +228,7 @@ for epoch in epoch_bar:
             },
             os.path.join(CHECKPOINT_DIR, "pcn_v2_best.pt"),
         )
+
+save_loss_plot(train_losses, val_losses, "final_loss_curve.png")
 
 print("[INFO] Training finished.")
