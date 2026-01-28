@@ -19,7 +19,7 @@ os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
-        LargeMissingRegion(removal_fraction=0.1),
+        LocalDropout(radius=0.1, regions=5, dropout_rate=0.9),
     ],
 )
 
@@ -27,26 +27,25 @@ dataset = AugmentedDataset(
 # # Visualize some samples from the dataset
 # viewer = SampleViewer(dataset)
 # viewer.show()
+from pytorch3d.loss import chamfer_distance
 
 # Load the pre-trained model
-model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
+model = PCN(num_dense=8192, latent_dim=1024, grid_size=4)
+
 checkpoint = torch.load(CHECKPOINT_DIR + "/pcn_v2_best.pt", map_location=device)
 model.load_state_dict(checkpoint["model_state"])
 model.to(device)
 model.eval()
 
-print(checkpoint["val_loss"])
-
 original, defected = dataset[0]
 
 original = original.unsqueeze(0).to(device)
-defected = defected.float().unsqueeze(0).to(device)
+defected = defected.unsqueeze(0).to(device)
 
-from pytorch3d.loss import chamfer_distance
 
 with torch.no_grad():
     coarse, completed = model(defected)  # ⬅️ ROZBALIT
 
-    cd, _ = chamfer_distance(defected, original)
+    cd, _ = chamfer_distance(completed, original)
     print(f"Chamfer Distance: {cd.item():.6f}")
 
