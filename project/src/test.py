@@ -6,10 +6,11 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 
 from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defect import LargeMissingRegion, Rotate, Noise, LocalDropout
+from dataset.defect import LargeMissingRegion, Rotate, Noise, LocalDropout, Combined
 from models import PCN
 from pytorch3d.ops import sample_farthest_points
 from pytorch3d.loss import chamfer_distance
+import random as rnd
 
 load_dotenv()
 
@@ -29,10 +30,18 @@ NUM_WORKERS = 4
 test_dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
-        LargeMissingRegion(removal_fraction=0.1),
-        LocalDropout(radius=0.05, regions=5, dropout_rate=0.8),
-        Noise(0.002),
-        Rotate(90, 90, 90),
+        Combined(
+            [
+                LargeMissingRegion(removal_fraction=rnd.uniform(0.1, 0.3)),
+                LocalDropout(
+                    radius=rnd.uniform(0.01, 0.1),
+                    regions=5,
+                    dropout_rate=rnd.uniform(0.5, 0.9),
+                ),
+                Noise(rnd.uniform(0.001, 0.005)),
+            ]
+        )
+        for _ in range(10)
     ],
 )
 

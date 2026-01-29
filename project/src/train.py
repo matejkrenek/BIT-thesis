@@ -1,5 +1,5 @@
 from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defect import LargeMissingRegion, LocalDropout, Rotate, Noise
+from dataset.defect import LargeMissingRegion, LocalDropout, Rotate, Noise, Combined
 import open3d as o3d
 import numpy as np
 import os
@@ -12,6 +12,7 @@ import safe_gpu
 from tqdm import tqdm
 from models import PCN
 from notifications import DiscordNotifier
+import random as rnd
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -43,13 +44,18 @@ notifier = DiscordNotifier(
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
     defects=[
-        LargeMissingRegion(removal_fraction=0.1),
-        LargeMissingRegion(removal_fraction=0.15),
-        LargeMissingRegion(removal_fraction=0.05),
-        LargeMissingRegion(removal_fraction=0.25),
-        LocalDropout(radius=0.05, regions=5, dropout_rate=0.8),
-        Noise(0.002),
-        Rotate(90, 90, 90),
+        Combined(
+            [
+                LargeMissingRegion(removal_fraction=rnd.uniform(0.1, 0.3)),
+                LocalDropout(
+                    radius=rnd.uniform(0.01, 0.1),
+                    regions=5,
+                    dropout_rate=rnd.uniform(0.5, 0.9),
+                ),
+                Noise(rnd.uniform(0.001, 0.005)),
+            ]
+        )
+        for _ in range(10)
     ],
 )
 train_losses = []

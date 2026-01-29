@@ -49,3 +49,6 @@ dataset = AugmentedDataset(
 
 viewer = SampleViewer(dataset=dataset)
 viewer.show()
+
+viewer = SampleViewer(dataset=dataset)
+viewer.show()
