@@ -49,28 +49,3 @@ with torch.no_grad():
     cd, _ = chamfer_distance(completed, original)
     print(f"Chamfer Distance: {cd.item():.6f}")
 
-print(original.shape, defected.shape, completed.shape)
-
-ps.init()
-
-ps.register_point_cloud(
-    "original",
-    original.squeeze(0).detach().cpu().numpy(),
-    radius=0.0025,
-    color=(0.0, 1.0, 0.0),
-)
-ps.register_point_cloud(
-    "defected",
-    defected.squeeze(0).detach().cpu().numpy(),
-    radius=0.0025,
-    color=(1.0, 0.0, 0.0),
-)
-
-ps.register_point_cloud(
-    "completed",
-    completed.squeeze(0).detach().cpu().numpy(),
-    radius=0.0025,
-    color=(0, 0.0, 1.0),
-)
-
-ps.show()
