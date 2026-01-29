@@ -26,12 +26,12 @@ ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-BATCH_SIZE = 2
+BATCH_SIZE = 128
 LR = 1e-3
-EPOCHS = 2
+EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
-OVERFIT = True  # True = overfit test
+OVERFIT = False  # True = overfit test
 
 notifier = DiscordNotifier(
     webhook_url="https://discord.com/api/webhooks/1466392738609238046/YOGa8j4HL9wKYeQXXyFdIR_j-vxs5jGYYekNnY0YSlBy-0aJnFwHXMfGPNxxLkMh5FE-",
@@ -192,7 +192,11 @@ def val_epoch():
         )
 
         pred = model(defected)
-        loss = model.compute_loss(pred, originals)
+
+        if hasattr(model, "module"):
+            loss = model.module.compute_loss(pred, originals)
+        else:
+            loss = model.compute_loss(pred, originals)
 
         total_loss += loss.item()
 
