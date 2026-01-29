@@ -11,6 +11,7 @@ from pytorch3d.ops import sample_farthest_points
 import safe_gpu
 from tqdm import tqdm
 from models import PCN
+from notifications import DiscordNotifier
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -25,12 +26,19 @@ ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-BATCH_SIZE = 128
+BATCH_SIZE = 2
 LR = 1e-3
-EPOCHS = 100
+EPOCHS = 2
 SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
-OVERFIT = False  # True = overfit test
+OVERFIT = True  # True = overfit test
+
+notifier = DiscordNotifier(
+    webhook_url="https://discord.com/api/webhooks/1466392738609238046/YOGa8j4HL9wKYeQXXyFdIR_j-vxs5jGYYekNnY0YSlBy-0aJnFwHXMfGPNxxLkMh5FE-",
+    project_name="BIT Thesis Project",
+    project_url="https://github.com/matejkrenek/BIT-thesis",
+    avatar_name="PCN Training Bot",
+)
 
 dataset = AugmentedDataset(
     dataset=ShapeNetDataset(root=ROOT_DATA),
@@ -52,7 +60,7 @@ def pcn_collate(batch):
     batch = [b for b in batch if b is not None]
     if len(batch) == 0:
         return None, None, None
-    
+
     originals, defecteds = zip(*batch)
 
     originals = torch.stack(originals, dim=0)
@@ -169,11 +177,10 @@ def val_epoch():
     model.eval()
     total_loss = 0.0
 
-
     for originals, padded, lengths in val_loader:
         if originals is None or padded is None or lengths is None:
             continue
-        
+
         originals = originals.to(DEVICE, non_blocking=True)
         padded = padded.to(DEVICE, non_blocking=True)
         lengths = lengths.to(DEVICE)
@@ -219,44 +226,88 @@ def save_loss_plot(train_losses, val_losses, path):
     plt.close()
 
 
-for epoch in epoch_bar:
-    train_loss = train_epoch()
-    val_loss = val_epoch()
+current_epoch = start_epoch - 1
 
-    train_losses.append(train_loss)
-    val_losses.append(val_loss)
+notifier.send_training_start(
+    total_epochs=EPOCHS,
+    batch_size=BATCH_SIZE,
+    train_size=train_size,
+    val_size=val_size,
+    training_on=DEVICE,
+    number_of_gpus=NUM_GPUS,
+    learning_rate=LR,
+)
 
-    save_loss_plot(train_losses, val_losses, "loss_curve.png")
+try:
+    for epoch in epoch_bar:
+        current_epoch = epoch
+        train_loss = train_epoch()
+        val_loss = val_epoch()
 
-    scheduler.step()
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
 
-    elapsed = time.time() - start_time
-    epochs_done = epoch - start_epoch + 1
-    epochs_left = EPOCHS - epoch
+        save_loss_plot(train_losses, val_losses, "loss_curve.png")
 
-    avg_epoch_time = elapsed / epochs_done
-    eta_seconds = int(avg_epoch_time * epochs_left)
+        scheduler.step()
 
-    epoch_bar.set_postfix(
-        train=f"{train_loss:.4f}",
-        val=f"{val_loss:.4f}",
-        eta=f"{eta_seconds//60}m {eta_seconds%60}s",
-    )   
+        elapsed = time.time() - start_time
+        epochs_done = epoch - start_epoch + 1
+        epochs_left = EPOCHS - epoch
 
-    # Save BEST model
-    if val_loss < best_val:
-        best_val = val_loss
-        torch.save(
-            {
-                "epoch": epoch,
-            "model_state": model.module.state_dict() if hasattr(model, "module") else model.state_dict(),
-                "optimizer_state": optimizer.state_dict(),
-                "scheduler_state": scheduler.state_dict(),
-                "val_loss": val_loss,
-            },
-            os.path.join(CHECKPOINT_DIR, "pcn_v2_best.pt"),
+        avg_epoch_time = elapsed / epochs_done
+        eta_seconds = int(avg_epoch_time * epochs_left)
+
+        epoch_bar.set_postfix(
+            train=f"{train_loss:.4f}",
+            val=f"{val_loss:.4f}",
+            eta=f"{eta_seconds//60}m {eta_seconds%60}s",
         )
 
-save_loss_plot(train_losses, val_losses, "final_loss_curve.png")
+        notifier.send_training_progress(
+            epoch=epoch,
+            total_epochs=EPOCHS,
+            current_loss=val_loss,
+            best_loss=best_val,
+            learning_rate=scheduler.get_last_lr()[0],
+            batch_size=BATCH_SIZE,
+            elapsed_time=f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m {int(elapsed % 60)}s",
+            estimated_finish_time=time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(time.time() + eta_seconds)
+            ),
+            loss_curve_path="./loss_curve.png",
+        )
 
-print("[INFO] Training finished.")
+        # Save BEST model
+        if val_loss < best_val:
+            best_val = val_loss
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state": (
+                        model.module.state_dict()
+                        if hasattr(model, "module")
+                        else model.state_dict()
+                    ),
+                    "optimizer_state": optimizer.state_dict(),
+                    "scheduler_state": scheduler.state_dict(),
+                    "val_loss": val_loss,
+                },
+                os.path.join(CHECKPOINT_DIR, "pcn_v2_best.pt"),
+            )
+
+    save_loss_plot(train_losses, val_losses, "final_loss_curve.png")
+
+    print("[INFO] Training finished.")
+
+    notifier.send_training_completion(
+        total_epochs=EPOCHS,
+        final_loss=val_losses[-1],
+        best_loss=best_val,
+        training_time=f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m {int(elapsed % 60)}s",
+        final_loss_curve_path="./final_loss_curve.png",
+        best_model_path="./checkpoints/pcn_v2_best.pth",
+    )
+except Exception as e:
+    print(f"[ERROR] Training interrupted: {e}")
+    notifier.send_training_error(error_message=str(e), epoch=current_epoch)

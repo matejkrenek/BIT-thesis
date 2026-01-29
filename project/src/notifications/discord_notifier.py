@@ -265,6 +265,62 @@ class DiscordNotifier:
         response = webhook.execute()
         return response
 
+    def send_training_start(
+        self,
+        total_epochs: int,
+        batch_size: int,
+        train_size: int,
+        val_size: int,
+        training_on: str,
+        number_of_gpus: int,
+        learning_rate: float,
+    ) -> dict:
+        """
+        Send training start notification to Discord.
+        Args:
+            total_epochs: Total number of epochs
+            batch_size: Training batch size
+            train_size: Size of the training dataset
+            val_size: Size of the validation dataset
+            training_on: Device used for training (e.g., CPU, GPU)
+            number_of_gpus: Number of GPUs used
+            learning_rate: Initial learning rate
+        Returns:
+            dict: Response from Discord API
+        """
+        webhook = self._create_webhook()
+
+        # Create start embed
+        embed = self._create_base_embed(
+            title="🏁 Training Started",
+            description=f"Model training has started for **{total_epochs} epochs**!",
+            color="2ecc71",  # Green for start/go
+        )
+
+        # Add training details
+        embed.add_embed_field(name="Total Epochs", value=f"{total_epochs}", inline=True)
+        embed.add_embed_field(name="Batch Size", value=f"{batch_size}", inline=True)
+        embed.add_embed_field(
+            name="Training Set Size", value=f"{train_size}", inline=True
+        )
+        embed.add_embed_field(
+            name="Validation Set Size", value=f"{val_size}", inline=True
+        )
+        embed.add_embed_field(name="Training On", value=f"{training_on}", inline=True)
+        embed.add_embed_field(
+            name="Number of GPUs", value=f"{number_of_gpus}", inline=True
+        )
+        embed.add_embed_field(
+            name="Learning Rate", value=f"{learning_rate}", inline=True
+        )
+
+        # Set footer
+        embed.set_footer(text=f"{self.project_name} - Training Started")
+
+        webhook.add_embed(embed)
+        response = webhook.execute()
+        return response
+
     def send_training_completion(
         self,
         total_epochs: int,
