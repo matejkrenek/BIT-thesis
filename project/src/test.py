@@ -39,6 +39,7 @@ test_dataset = AugmentedDataset(
                     dropout_rate=rnd.uniform(0.5, 0.9),
                 ),
                 Noise(rnd.uniform(0.001, 0.005)),
+                Rotate(0, 0, rnd.uniform(0, 360)),
             ]
         )
         for _ in range(10)
