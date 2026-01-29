@@ -12,19 +12,20 @@ import safe_gpu
 from tqdm import tqdm
 from models import PCN
 
-safe_gpu.claim_gpus(1)
-
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+NUM_GPUS = torch.cuda.device_count()
+print(f"[INFO] Available GPUs: {NUM_GPUS}")
 
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
 ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-BATCH_SIZE = 32
+BATCH_SIZE = 128
 LR = 1e-3
 EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
@@ -93,7 +94,13 @@ val_loader = DataLoader(
     num_workers=4,
 )
 
-model = PCN(num_dense=16384, latent_dim=1024, grid_size=4).to(DEVICE)
+model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
+
+if DEVICE == "cuda" and NUM_GPUS > 1:
+    print("[INFO] Using DataParallel")
+    model = torch.nn.DataParallel(model)
+
+model = model.to(DEVICE)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
@@ -110,7 +117,12 @@ if RESUME_FROM is not None:
     print(f"[INFO] Resuming from checkpoint: {RESUME_FROM}")
     checkpoint = torch.load(RESUME_FROM, map_location=DEVICE)
 
-    model.load_state_dict(checkpoint["model_state"])
+    state = checkpoint["model_state"]
+    if hasattr(model, "module"):
+        model.module.load_state_dict(state)
+    else:
+        model.load_state_dict(state)
+
     optimizer.load_state_dict(checkpoint["optimizer_state"])
     scheduler.load_state_dict(checkpoint["scheduler_state"])
 
@@ -137,7 +149,11 @@ def train_epoch():
         )
 
         pred = model(defected)
-        loss = model.compute_loss(pred, originals)
+
+        if hasattr(model, "module"):
+            loss = model.module.compute_loss(pred, originals)
+        else:
+            loss = model.compute_loss(pred, originals)
 
         optimizer.zero_grad()
         loss.backward()
@@ -233,7 +249,7 @@ for epoch in epoch_bar:
         torch.save(
             {
                 "epoch": epoch,
-                "model_state": model.state_dict(),
+            "model_state": model.module.state_dict() if hasattr(model, "module") else model.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
                 "val_loss": val_loss,
