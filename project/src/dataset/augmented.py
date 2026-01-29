@@ -14,16 +14,10 @@ class AugmentedDataset(Dataset):
         detailed: bool = False,
     ):
         self.base = dataset
-        self.combinations = self._generate_combinations(defects)
-        self.num_variants = num_variants or len(self.combinations)
+        self.defects = defects
+        self.num_variants = len(defects) if num_variants is None else num_variants
+        print(len(self.defects))
         self.detailed = detailed
-
-    def _generate_combinations(self, defects: list) -> list:
-        combos = []
-        for r in range(1, len(defects) + 1):
-            for combo in combinations(defects, r):
-                combos.append(list(combo))
-        return combos
 
     def __len__(self):
         return len(self.base) * self.num_variants
@@ -41,16 +35,15 @@ class AugmentedDataset(Dataset):
         original = data.pos.numpy()
 
         # Apply the defect chain
-        defect_chain = self.combinations[variant_id]
+        defect = self.defects[variant_id]
 
         torch.manual_seed(idx)
         np.random.seed(idx)
 
         defected = original.copy()
         defected_log = {}
-        for defect in defect_chain:
-            defected, log = defect.apply(defected)
-            defected_log[defect.name] = log
+        defected, log = defect.apply(defected)
+        defected_log[defect.name] = log
 
         # Normalize
         original_centroid = original.mean(axis=0)
@@ -60,7 +53,7 @@ class AugmentedDataset(Dataset):
         scale = np.max(np.linalg.norm(original_centered, axis=1))
         original = torch.from_numpy(original_centered / scale).float()
         defected = torch.from_numpy(defected_centered / scale).float()
-        
+
         return (
             (original, defected)
             if not self.detailed

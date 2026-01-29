@@ -13,3 +13,4 @@ from .hair_like_noise import HairLikeNoise
 from .surface_flattening import SurfaceFlattening
 from .surface_bulging import SurfaceBulging
 from .anisotropic_stretch_noise import AnisotropicStretchNoise
+from .combined import Combined
