@@ -34,6 +34,11 @@ SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
 OVERFIT = False  # True = overfit test
 
+SEED = 42
+g = torch.Generator()
+g.manual_seed(SEED)
+rng = np.random.RandomState(SEED)
+
 notifier = DiscordNotifier(
     webhook_url="https://discord.com/api/webhooks/1466392738609238046/YOGa8j4HL9wKYeQXXyFdIR_j-vxs5jGYYekNnY0YSlBy-0aJnFwHXMfGPNxxLkMh5FE-",
     project_name="BIT Thesis Project",
@@ -46,14 +51,14 @@ dataset = AugmentedDataset(
     defects=[
         Combined(
             [
-                LargeMissingRegion(removal_fraction=rnd.uniform(0.1, 0.3)),
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.3)),
                 LocalDropout(
-                    radius=rnd.uniform(0.01, 0.1),
+                    radius=rng.uniform(0.01, 0.1),
                     regions=5,
-                    dropout_rate=rnd.uniform(0.5, 0.9),
+                    dropout_rate=rng.uniform(0.5, 0.9),
                 ),
-                Noise(rnd.uniform(0.001, 0.005)),
-                Rotate(0, 0, rnd.uniform(0, 360)),
+                Noise(rng.uniform(0.001, 0.005)),
+                Rotate(0, 0, rng.uniform(0, 360)),
             ]
         )
         for _ in range(10)
@@ -89,7 +94,7 @@ if OVERFIT:
 
 train_size = int(0.9 * len(dataset))
 val_size = len(dataset) - train_size
-train_ds, val_ds = random_split(dataset, [train_size, val_size])
+train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=g)
 
 train_loader = DataLoader(
     train_ds,
@@ -99,6 +104,7 @@ train_loader = DataLoader(
     persistent_workers=True,
     collate_fn=pcn_collate,
     pin_memory=True,
+    generator=g,
 )
 
 val_loader = DataLoader(
@@ -107,6 +113,7 @@ val_loader = DataLoader(
     shuffle=False,
     collate_fn=pcn_collate,
     num_workers=4,
+    generator=g,
 )
 
 model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
