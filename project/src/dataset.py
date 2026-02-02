@@ -1,4 +1,4 @@
-from dataset import ShapeNetDataset, AugmentedDataset
+from dataset import ShapeNetDataset, AugmentedDataset, ModelNetDataset, CO3DDataset
 from dataset.defect import (
     LargeMissingRegion,
     LocalDropout,
@@ -9,6 +9,7 @@ from dataset.defect import (
     Combined,
     Rotate,
 )
+from dataset.downloader import ZipUrlDownloader
 import open3d as o3d
 import numpy as np
 import os
@@ -19,6 +20,8 @@ import time
 import polyscope as ps
 from visualize.viewer import SampleViewer
 import random as rnd
+from pathlib import Path
+import shutil
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -33,8 +36,22 @@ g = torch.Generator()
 g.manual_seed(SEED)
 rng = np.random.RandomState(SEED)
 
+dataset = CO3DDataset(root=DATA_FOLDER_PATH + "/data/CO3D", categories=["tv", "bench"])
+
+exit(0)
+
+pl = o3d.io.read_point_cloud("./pointcloud.ply")
+
+ps.init()
+
+ps.register_point_cloud("original", np.asarray(pl.points))
+
+ps.show()
+
+exit(0)
+
 dataset = AugmentedDataset(
-    dataset=ShapeNetDataset(root=ROOT_DATA),
+    dataset=ModelNetDataset(root=DATA_FOLDER_PATH + "/data/ModelNet40"),
     defects=[
         Combined(
             [
@@ -44,11 +61,9 @@ dataset = AugmentedDataset(
                     regions=5,
                     dropout_rate=rng.uniform(0.5, 0.9),
                 ),
-                Noise(rng.uniform(0.001, 0.005)),
-                Rotate(0, 0, rng.uniform(0, 360)),
+                Noise(rng.uniform(0.005, 0.01)),
             ]
         )
-        for _ in range(10)
     ],
     detailed=True,
 )

@@ -9,3 +9,4 @@ logs
 .polyscope.ini
 imgui.ini
 checkpoints
+masks
