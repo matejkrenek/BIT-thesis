@@ -14,6 +14,8 @@ from models import PCN
 from notifications import DiscordNotifier
 import random as rnd
 
+safe_gpu.claim_gpus(3)
+
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
 
@@ -31,7 +33,7 @@ BATCH_SIZE = 128
 LR = 1e-3
 EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
-RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
+RESUME_FROM = CHECKPOINT_DIR + "/pcn_v2_best.pt"  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
 OVERFIT = False  # True = overfit test
 
 notifier = DiscordNotifier(
@@ -239,15 +241,30 @@ def save_loss_plot(train_losses, val_losses, path):
 
 current_epoch = start_epoch - 1
 
-notifier.send_training_start(
-    total_epochs=EPOCHS,
-    batch_size=BATCH_SIZE,
-    train_size=train_size,
-    val_size=val_size,
-    training_on=DEVICE,
-    number_of_gpus=NUM_GPUS,
-    learning_rate=LR,
-)
+if RESUME_FROM is not None:
+    notifier.send_training_progress(
+        epoch=current_epoch,
+        total_epochs=EPOCHS,
+        current_loss=best_val,
+        best_loss=best_val,
+        learning_rate=scheduler.get_last_lr()[0],
+        batch_size=BATCH_SIZE,
+        elapsed_time=f"{int(0 // 3600)}h {int((0 % 3600) // 60)}m {int(0 % 60)}s",
+        estimated_finish_time=time.strftime(
+            "%Y-%m-%d %H:%M:%S", time.localtime(time.time() + 0)
+        ),
+        loss_curve_path="./loss_curve.png",
+    )
+else:
+    notifier.send_training_start(
+        total_epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        train_size=train_size,
+        val_size=val_size,
+        training_on=DEVICE,
+        number_of_gpus=NUM_GPUS,
+        learning_rate=LR,
+    )
 
 try:
     for epoch in epoch_bar:
@@ -317,7 +334,7 @@ try:
         best_loss=best_val,
         training_time=f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m {int(elapsed % 60)}s",
         final_loss_curve_path="./final_loss_curve.png",
-        best_model_path="./checkpoints/pcn_v2_best.pth",
+        best_model_path=CHECKPOINT_DIR + "/pcn_v2_best.pth",
     )
 except Exception as e:
     print(f"[ERROR] Training interrupted: {e}")

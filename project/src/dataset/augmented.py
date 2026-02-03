@@ -16,7 +16,6 @@ class AugmentedDataset(Dataset):
         self.base = dataset
         self.defects = defects
         self.num_variants = len(defects) if num_variants is None else num_variants
-        print(len(self.defects))
         self.detailed = detailed
 
     def __len__(self):
