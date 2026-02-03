@@ -23,6 +23,11 @@ CHECKPOINT_PATH = DATA_FOLDER_PATH + "/checkpoints/pcn_v2_best.pt"
 BATCH_SIZE = 16
 NUM_WORKERS = 4
 
+SEED = 42
+g = torch.Generator()
+g.manual_seed(SEED)
+rng = np.random.RandomState(SEED)
+
 # -----------------------
 # Dataset
 # -----------------------
@@ -32,14 +37,14 @@ test_dataset = AugmentedDataset(
     defects=[
         Combined(
             [
-                LargeMissingRegion(removal_fraction=rnd.uniform(0.1, 0.3)),
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.3)),
                 LocalDropout(
-                    radius=rnd.uniform(0.01, 0.1),
+                    radius=rng.uniform(0.01, 0.1),
                     regions=5,
-                    dropout_rate=rnd.uniform(0.5, 0.9),
+                    dropout_rate=rng.uniform(0.5, 0.9),
                 ),
-                Noise(rnd.uniform(0.001, 0.005)),
-                Rotate(0, 0, rnd.uniform(0, 360)),
+                Noise(rng.uniform(0.001, 0.005)),
+                Rotate(0, 0, rng.uniform(0, 360)),
             ]
         )
         for _ in range(10)
@@ -69,6 +74,7 @@ test_loader = DataLoader(
     num_workers=NUM_WORKERS,
     collate_fn=pcn_collate,
     pin_memory=True,
+    generator=g,
 )
 
 # -----------------------

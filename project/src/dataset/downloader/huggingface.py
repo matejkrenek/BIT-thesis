@@ -23,7 +23,7 @@ class HuggingFaceDownloader(BaseDownloader):
         )
 
     def download(self) -> bool:
-        """Download dataset from HuggingFace Hub if not already present locally."""
+        """Download daaset from HuggingFace Hub if not already present locally."""
         # Check if dataset already exists locally
         if (
             os.path.exists(self.local_dir)

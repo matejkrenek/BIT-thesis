@@ -178,6 +178,11 @@ class ShapeNetDataset(InMemoryDataset):
                 try:
                     mesh = o3d.io.read_triangle_mesh(obj_path)
 
+                    if not mesh.has_triangles():
+                        continue
+
+                    mesh.compute_vertex_normals()
+
                     vertices = np.asarray(mesh.vertices).astype(np.float32)
                     faces = np.asarray(mesh.triangles)
 

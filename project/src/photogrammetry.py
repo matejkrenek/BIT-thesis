@@ -49,22 +49,9 @@ def main(image_dir: Path):
         batch_size=1,
     )
 
-    ps.init()
+    optimized_results.point_cloud.export(Path("reconstruction.ply"))
 
-    points, colors = extract_from_trimesh_pc(optimized_results.point_cloud)
-
-    pc = ps.register_point_cloud(
-        "DUSt3R colored reconstruction",
-        points,
-    )
-
-    pc.add_color_quantity(
-        "rgb",
-        colors,
-        enabled=True,
-    )
-
-    ps.show()
+    print(optimized_results)
 
 
 if __name__ == "__main__":

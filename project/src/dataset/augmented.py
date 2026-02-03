@@ -21,6 +21,13 @@ class AugmentedDataset(Dataset):
     def __len__(self):
         return len(self.base) * self.num_variants
 
+    def normalize_pc(self, points: np.ndarray):
+        centroid = points.mean(axis=0)
+        centered = points - centroid
+        scale = np.max(np.linalg.norm(centered, axis=1))
+        normalized = centered / scale
+        return normalized, centroid, scale
+
     def __getitem__(self, idx):
         base_idx = idx // self.num_variants
         variant_id = idx % self.num_variants
@@ -33,28 +40,24 @@ class AugmentedDataset(Dataset):
 
         original = data.pos.numpy()
 
-        # Apply the defect chain
+        original_norm, centroid, scale = self.normalize_pc(original)
+
         defect = self.defects[variant_id]
 
         torch.manual_seed(idx)
         np.random.seed(idx)
 
-        defected = original.copy()
+        defected_norm = original_norm.copy()
         defected_log = {}
-        defected, log = defect.apply(defected)
+
+        defected_norm, log = defect.apply(defected_norm)
         defected_log[defect.name] = log
 
-        # Normalize
-        original_centroid = original.mean(axis=0)
-        original_centered = original - original_centroid
-        defected_centered = defected - original_centroid
-
-        scale = np.max(np.linalg.norm(original_centered, axis=1))
-        original = torch.from_numpy(original_centered / scale).float()
-        defected = torch.from_numpy(defected_centered / scale).float()
+        original_t = torch.from_numpy(original_norm).float()
+        defected_t = torch.from_numpy(defected_norm).float()
 
         return (
-            (original, defected)
+            (original_t, defected_t)
             if not self.detailed
-            else (original, defected, defected_log)
+            else (original_t, defected_t, defected_log)
         )
