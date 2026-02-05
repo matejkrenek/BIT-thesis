@@ -33,7 +33,7 @@ BATCH_SIZE = 128
 LR = 1e-3
 EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
-RESUME_FROM = CHECKPOINT_DIR + "/pcn_v2_best.pt"  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
+RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
 OVERFIT = False  # True = overfit test
 
 SEED = 42
@@ -328,7 +328,7 @@ try:
                     "scheduler_state": scheduler.state_dict(),
                     "val_loss": val_loss,
                 },
-                os.path.join(CHECKPOINT_DIR, "pcn_v2_best.pt"),
+                os.path.join(CHECKPOINT_DIR, "pcn_v3_best.pt"),
             )
 
     save_loss_plot(train_losses, val_losses, "final_loss_curve.png")
@@ -341,7 +341,7 @@ try:
         best_loss=best_val,
         training_time=f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m {int(elapsed % 60)}s",
         final_loss_curve_path="./final_loss_curve.png",
-        best_model_path=CHECKPOINT_DIR + "/pcn_v2_best.pth",
+        best_model_path=CHECKPOINT_DIR + "/pcn_v3_best.pth",
     )
 except Exception as e:
     print(f"[ERROR] Training interrupted: {e}")
