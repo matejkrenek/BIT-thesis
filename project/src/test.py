@@ -27,6 +27,7 @@ SEED = 42
 g = torch.Generator()
 g.manual_seed(SEED)
 rng = np.random.RandomState(SEED)
+np.random.seed(SEED)
 
 # -----------------------
 # Dataset

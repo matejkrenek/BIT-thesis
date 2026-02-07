@@ -40,6 +40,7 @@ SEED = 42
 g = torch.Generator()
 g.manual_seed(SEED)
 rng = np.random.RandomState(SEED)
+np.random.seed(SEED)
 
 notifier = DiscordNotifier(
     webhook_url="https://discord.com/api/webhooks/1466392738609238046/YOGa8j4HL9wKYeQXXyFdIR_j-vxs5jGYYekNnY0YSlBy-0aJnFwHXMfGPNxxLkMh5FE-",

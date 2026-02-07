@@ -1,4 +1,4 @@
-from dataset import ShapeNetDataset, AugmentedDataset, ModelNetDataset, CO3DDataset
+from dataset import ShapeNetDataset, AugmentedDataset, ModelNetDataset, CO3DDataset, PhotogrammetricDataset
 from dataset.defect import (
     LargeMissingRegion,
     LocalDropout,
@@ -35,8 +35,20 @@ SEED = 42
 g = torch.Generator()
 g.manual_seed(SEED)
 rng = np.random.RandomState(SEED)
+np.random.seed(SEED)
 
-dataset = CO3DDataset(root=DATA_FOLDER_PATH + "/data/CO3D", categories=["tv", "bench"])
+dataset = PhotogrammetricDataset(
+    dataset=CO3DDataset(root=DATA_FOLDER_PATH + "/data/CO3D", categories=["cup", "bench", "car"], force_reload=True, samples_per_category=10), 
+    frames_per_sample=[5, 10, 20, 25], 
+    frames_strategy="uniform", 
+)
+
+for i in range(len(dataset)):
+    try:
+        sample = dataset[i]
+        print(f"Sample {i}: {sample}")
+    except Exception as e:
+        continue
 
 exit(0)
 
