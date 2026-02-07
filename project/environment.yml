@@ -3,219 +3,231 @@ channels:
   - defaults
   - conda-forge
   - nvidia
-  - iopath
-  - bottler
   - pytorch
   - pytorch3d
 dependencies:
-  - _libgcc_mutex=0.1
-  - _openmp_mutex=5.1
-  - alsa-lib=1.2.14
-  - aom=3.12.1
-  - blas=1.0
-  - brotlicffi=1.0.9.2
-  - bzip2=1.0.8
-  - ca-certificates=2026.1.4
-  - cairo=1.18.4
-  - certifi=2025.10.5
-  - cffi=2.0.0
-  - charset-normalizer=3.4.4
-  - cuda=11.6.1
-  - cuda-cccl=11.6.55
-  - cuda-command-line-tools=11.6.2
-  - cuda-compiler=11.6.2
-  - cuda-cudart=11.6.55
-  - cuda-cudart-dev=11.6.55
-  - cuda-cuobjdump=11.6.124
-  - cuda-cupti=11.6.124
-  - cuda-cuxxfilt=11.6.124
-  - cuda-driver-dev=11.6.55
-  - cuda-gdb=13.1.115
-  - cuda-libraries=11.6.1
-  - cuda-libraries-dev=11.6.1
-  - cuda-memcheck=11.8.86
-  - cuda-nsight=13.1.115
-  - cuda-nsight-compute=12.4.1
-  - cuda-nvcc=11.6.124
-  - cuda-nvdisasm=13.1.115
-  - cuda-nvml-dev=11.6.55
-  - cuda-nvprof=12.4.127
-  - cuda-nvprune=11.6.124
-  - cuda-nvrtc=11.6.124
-  - cuda-nvrtc-dev=11.6.124
-  - cuda-nvtx=11.6.124
-  - cuda-nvvp=12.4.127
-  - cuda-runtime=11.6.1
-  - cuda-samples=11.6.101
-  - cuda-sanitizer-api=13.1.118
-  - cuda-toolkit=11.6.1
-  - cuda-tools=11.6.1
-  - cuda-version=13.1
-  - cuda-visual-tools=11.6.1
-  - dav1d=1.2.1
-  - dbus=1.16.2
-  - expat=2.7.3
-  - ffmpeg=6.1.1
-  - fontconfig=2.15.0
-  - freetype=2.13.3
-  - fribidi=1.0.16
-  - fvcore=0.1.5.post20221221
-  - gds-tools=1.16.1.26
-  - giflib=5.2.2
-  - gmp=6.3.0
-  - graphite2=1.3.14
-  - harfbuzz=10.2.0
-  - icu=73.1
-  - idna=3.11
-  - intel-openmp=2023.0.0
-  - iopath=0.1.9
-  - jpeg=9f
-  - lame=3.100
-  - lcms2=2.17
-  - ld_impl_linux-64=2.44
-  - leptonica=1.82.0
-  - lerc=4.0.0
-  - libarchive=3.8.2
-  - libavif=1.3.0
-  - libcublas=11.9.2.110
-  - libcublas-dev=11.9.2.110
-  - libcufft=10.7.1.112
-  - libcufft-dev=10.7.1.112
-  - libcufile=1.16.1.26
-  - libcufile-dev=1.16.1.26
-  - libcurand=10.4.1.81
-  - libcurand-dev=10.4.1.81
-  - libcusolver=11.3.4.124
-  - libcusparse=11.7.2.124
-  - libcusparse-dev=11.7.2.124
-  - libdeflate=1.22
-  - libexpat=2.7.3
-  - libffi=3.4.4
-  - libgcc=15.2.0
-  - libgcc-ng=15.2.0
-  - libglib=2.84.4
-  - libglvnd=1.7.0
-  - libgomp=15.2.0
-  - libiconv=1.16
-  - libnpp=11.6.3.124
-  - libnpp-dev=11.6.3.124
-  - libnsl=2.0.0
-  - libnvjpeg=11.6.2.124
-  - libnvjpeg-dev=11.6.2.124
-  - libogg=1.3.5
-  - libopengl=1.7.0
-  - libopenjpeg=2.5.4
-  - libopus=1.3.1
-  - libpng=1.6.50
-  - libstdcxx=15.2.0
-  - libstdcxx-ng=15.2.0
-  - libtheora=1.2.0
-  - libtiff=4.7.1
-  - libuuid=1.41.5
-  - libvorbis=1.3.7
-  - libvpx=1.15.2
-  - libwebp=1.6.0
-  - libwebp-base=1.6.0
-  - libxcb=1.17.0
-  - libxkbcommon=1.9.1
-  - libxkbfile=1.1.0
-  - libxml2=2.13.9
-  - libzlib=1.3.1
-  - lz4-c=1.9.4
-  - mkl=2023.1.0
-  - mkl-service=2.4.0
-  - mkl_fft=1.3.11
-  - mkl_random=1.2.8
-  - ncurses=6.5
-  - nsight-compute=2025.4.1.2
-  - nspr=4.37
-  - nss=3.117
-  - nvidiacub=1.10.0
-  - openh264=2.6.0
-  - openjpeg=2.5.4
-  - openssl=3.6.0
-  - pcre2=10.46
-  - pillow=11.3.0
-  - pip=25.3
-  - pixman=0.46.4
-  - portalocker=3.0.0
-  - pthread-stubs=0.3
-  - pycparser=2.23
-  - pysocks=1.7.1
-  - python=3.9.25
-  - python_abi=3.9
-  - pytorch=1.13.0
-  - pytorch-cuda=11.6
-  - pytorch-mutex=1.0
-  - pytorch3d=0.7.5
-  - pyyaml=6.0.2
-  - readline=8.3
-  - requests=2.32.5
-  - setuptools=80.9.0
-  - sqlite=3.51.1
-  - tabulate=0.9.0
-  - tbb=2021.8.0
-  - termcolor=3.1.0
-  - tesseract=5.2.0
-  - tk=8.6.15
-  - torchvision=0.14.0
-  - tqdm=4.67.1
-  - typing_extensions=4.15.0
-  - urllib3=2.5.0
-  - wheel=0.45.1
-  - xcb-util=0.4.1
-  - xcb-util-cursor=0.1.5
-  - xcb-util-image=0.4.0
-  - xcb-util-keysyms=0.4.1
-  - xcb-util-renderutil=0.3.10
-  - xcb-util-wm=0.4.2
-  - xkeyboard-config=2.44
-  - xorg-libice=1.1.2
-  - xorg-libsm=1.2.6
-  - xorg-libx11=1.8.12
-  - xorg-libxau=1.0.12
-  - xorg-libxcomposite=0.4.6
-  - xorg-libxdamage=1.1.6
-  - xorg-libxdmcp=1.1.5
-  - xorg-libxext=1.3.6
-  - xorg-libxfixes=6.0.1
-  - xorg-libxi=1.8.2
-  - xorg-libxrandr=1.5.4
-  - xorg-libxrender=0.9.12
-  - xorg-libxtst=1.2.5
-  - xorg-xorgproto=2024.1
-  - xz=5.6.4
-  - yacs=0.1.8
-  - yaml=0.2.5
-  - zlib=1.3.1
-  - zstd=1.5.7
+  - _libgcc_mutex=0.1=main
+  - _openmp_mutex=5.1=1_gnu
+  - alsa-lib=1.2.14=h5eee18b_0
+  - aom=3.12.1=h7934f7d_0
+  - blas=1.0=mkl
+  - brotlicffi=1.0.9.2=py310hbdd6827_2
+  - bzip2=1.0.8=h5eee18b_6
+  - ca-certificates=2026.1.4=hbd8a1cb_0
+  - cairo=1.18.4=h44eff21_0
+  - certifi=2025.10.5=py310h06a4308_0
+  - cffi=2.0.0=py310h4eded50_1
+  - charset-normalizer=3.4.4=py310h06a4308_0
+  - cuda=11.6.1=0
+  - cuda-cccl=11.6.55=hf6102b2_0
+  - cuda-command-line-tools=11.6.2=0
+  - cuda-compiler=11.6.2=0
+  - cuda-cudart=11.6.55=he381448_0
+  - cuda-cudart-dev=11.6.55=h42ad0f4_0
+  - cuda-cuobjdump=11.6.124=h2eeebcb_0
+  - cuda-cupti=11.6.124=h86345e5_0
+  - cuda-cuxxfilt=11.6.124=hecbf4f6_0
+  - cuda-driver-dev=11.6.55=0
+  - cuda-gdb=13.1.115=h0c1f0ea_0
+  - cuda-libraries=11.6.1=0
+  - cuda-libraries-dev=11.6.1=0
+  - cuda-memcheck=11.8.86=0
+  - cuda-nsight=13.1.115=h6061065_0
+  - cuda-nsight-compute=12.4.1=0
+  - cuda-nvcc=11.6.124=hbba6d2d_0
+  - cuda-nvdisasm=13.1.115=h80a0ff4_0
+  - cuda-nvml-dev=11.6.55=haa9ef22_0
+  - cuda-nvprof=12.4.127=0
+  - cuda-nvprune=11.6.124=he22ec0a_0
+  - cuda-nvrtc=11.6.124=h020bade_0
+  - cuda-nvrtc-dev=11.6.124=h249d397_0
+  - cuda-nvtx=11.6.124=h0630a44_0
+  - cuda-nvvp=12.4.127=0
+  - cuda-runtime=11.6.1=0
+  - cuda-samples=11.6.101=h8efea70_0
+  - cuda-sanitizer-api=13.1.118=h80a0ff4_0
+  - cuda-toolkit=11.6.1=0
+  - cuda-tools=11.6.1=0
+  - cuda-version=13.1=he7c9b7b_3
+  - cuda-visual-tools=11.6.1=0
+  - dataclasses=0.8=pyh6d0b6a4_7
+  - dav1d=1.2.1=h5eee18b_0
+  - dbus=1.16.2=h5bd4931_0
+  - expat=2.7.3=h7354ed3_4
+  - ffmpeg=6.1.1=hecf7045_5
+  - fontconfig=2.15.0=h2c49b7f_0
+  - freetype=2.13.3=h4a9f257_0
+  - fribidi=1.0.16=h9fb5f84_0
+  - fvcore=0.1.5.post20221221=pyhd8ed1ab_0
+  - gds-tools=1.16.1.26=h48ee5e2_0
+  - giflib=5.2.2=h5eee18b_0
+  - gmp=6.3.0=h6a678d5_0
+  - graphite2=1.3.14=h295c915_1
+  - harfbuzz=10.2.0=hdfddeaa_1
+  - icu=73.1=h6a678d5_0
+  - idna=3.11=py310h06a4308_0
+  - intel-openmp=2023.0.0=h9e868ea_25371
+  - iopath=0.1.9=pyhd8ed1ab_0
+  - jpeg=9f=h5ce9db8_0
+  - lame=3.100=hbd0596d_1
+  - lcms2=2.17=heab6991_0
+  - ld_impl_linux-64=2.44=h153f514_2
+  - leptonica=1.82.0=hfdeec58_3
+  - lerc=4.0.0=h6a678d5_0
+  - libarchive=3.8.2=h3ec8f01_0
+  - libavif=1.3.0=h3539ee5_0
+  - libcublas=11.9.2.110=h5e84587_0
+  - libcublas-dev=11.9.2.110=h5c901ab_0
+  - libcufft=10.7.1.112=hf425ae0_0
+  - libcufft-dev=10.7.1.112=ha5ce4c0_0
+  - libcufile=1.16.1.26=h1ffec3f_0
+  - libcufile-dev=1.16.1.26=h7354ed3_0
+  - libcurand=10.4.1.81=h7354ed3_0
+  - libcurand-dev=10.4.1.81=h7354ed3_0
+  - libcusolver=11.3.4.124=h33c3c4e_0
+  - libcusparse=11.7.2.124=h7538f96_0
+  - libcusparse-dev=11.7.2.124=hbbe9722_0
+  - libdeflate=1.22=h5eee18b_0
+  - libexpat=2.7.3=h7354ed3_4
+  - libffi=3.4.4=h6a678d5_1
+  - libgcc=15.2.0=h69a1729_7
+  - libgcc-ng=15.2.0=h166f726_7
+  - libglib=2.84.4=h1fb398f_1
+  - libglvnd=1.7.0=h5eee18b_2
+  - libgomp=15.2.0=h4751f2c_7
+  - libiconv=1.16=h5eee18b_3
+  - libnl=3.11.0=hb25bd0a_0
+  - libnpp=11.6.3.124=hd2722f0_0
+  - libnpp-dev=11.6.3.124=h3c42840_0
+  - libnsl=2.0.0=h5eee18b_0
+  - libnuma=2.0.19=hee96239_0
+  - libnvjpeg=11.6.2.124=hd473ad6_0
+  - libnvjpeg-dev=11.6.2.124=hb5906b9_0
+  - libogg=1.3.5=h27cfd23_1
+  - libopengl=1.7.0=h5eee18b_2
+  - libopenjpeg=2.5.4=hee96239_1
+  - libopus=1.3.1=h5eee18b_1
+  - libpng=1.6.50=h2ed474d_0
+  - libstdcxx=15.2.0=h39759b7_7
+  - libstdcxx-ng=15.2.0=hc03a8fd_7
+  - libtheora=1.2.0=h32ad74f_1
+  - libtiff=4.7.1=h029b1ac_0
+  - libuuid=1.41.5=h5eee18b_0
+  - libvorbis=1.3.7=h536e056_1
+  - libvpx=1.15.2=h4cb591d_0
+  - libwebp=1.6.0=h089d785_0
+  - libwebp-base=1.6.0=hb7bb969_0
+  - libxcb=1.17.0=h9b100fa_0
+  - libxkbcommon=1.9.1=h69220b7_0
+  - libxkbfile=1.1.0=hf54ef8a_2
+  - libxml2=2.13.9=h2c43086_0
+  - libzlib=1.3.1=hb25bd0a_0
+  - lz4-c=1.9.4=h6a678d5_1
+  - mkl=2023.1.0=h213fc3f_46344
+  - mkl-service=2.4.0=py310h5eee18b_2
+  - mkl_fft=1.3.11=py310h5eee18b_0
+  - mkl_random=1.2.8=py310h1128e8f_0
+  - ncurses=6.5=h7934f7d_0
+  - nsight-compute=2025.4.1.2=h6f129cd_0
+  - nspr=4.37=h8459abe_0
+  - nss=3.117=h3135ca0_0
+  - openh264=2.6.0=he621ea3_0
+  - openjpeg=2.5.4=h4e0627c_1
+  - openssl=3.6.0=h26f9b46_1
+  - pcre2=10.46=hf426167_0
+  - pip=25.3=pyhc872135_0
+  - pixman=0.46.4=h7934f7d_0
+  - portalocker=3.0.0=py310h06a4308_0
+  - pthread-stubs=0.3=h0ce48e5_1
+  - pycparser=2.23=py310h06a4308_0
+  - pysocks=1.7.1=py310h06a4308_1
+  - python=3.10.19=h6fa692b_0
+  - python_abi=3.10=3_cp310
+  - pytorch-cuda=11.6=h867d48c_1
+  - pytorch-mutex=1.0=cuda
+  - pytorch3d=0.7.5=py310_cu116_pyt1130
+  - pyyaml=6.0.2=py310h5eee18b_0
+  - rdma-core=60.0=h7354ed3_0
+  - readline=8.3=hc2a1206_0
+  - requests=2.32.5=py310h06a4308_1
+  - setuptools=80.9.0=py310h06a4308_0
+  - sqlite=3.51.1=he0a8d7e_0
+  - tabulate=0.9.0=py310h06a4308_0
+  - tbb=2021.8.0=hdb19cb5_0
+  - termcolor=3.1.0=pyhd8ed1ab_0
+  - tesseract=5.2.0=hb0d2e87_3
+  - tk=8.6.15=h54e0aa7_0
+  - tqdm=4.67.1=py310h7040dfc_1
+  - typing_extensions=4.15.0=py310h06a4308_0
+  - urllib3=2.5.0=py310h06a4308_0
+  - wheel=0.45.1=py310h06a4308_0
+  - xcb-util=0.4.1=h5eee18b_2
+  - xcb-util-cursor=0.1.5=h5eee18b_0
+  - xcb-util-image=0.4.0=h5eee18b_2
+  - xcb-util-keysyms=0.4.1=h5eee18b_0
+  - xcb-util-renderutil=0.3.10=h5eee18b_0
+  - xcb-util-wm=0.4.2=h5eee18b_0
+  - xkeyboard-config=2.44=h382ed1a_1
+  - xorg-libice=1.1.2=h9b100fa_0
+  - xorg-libsm=1.2.6=h9b100fa_0
+  - xorg-libx11=1.8.12=h9b100fa_1
+  - xorg-libxau=1.0.12=h9b100fa_0
+  - xorg-libxcomposite=0.4.6=h9b100fa_2
+  - xorg-libxdamage=1.1.6=h9b100fa_0
+  - xorg-libxdmcp=1.1.5=h9b100fa_0
+  - xorg-libxext=1.3.6=h9b100fa_0
+  - xorg-libxfixes=6.0.1=h9b100fa_0
+  - xorg-libxi=1.8.2=h9b100fa_0
+  - xorg-libxrandr=1.5.4=h9b100fa_0
+  - xorg-libxrender=0.9.12=h9b100fa_0
+  - xorg-libxtst=1.2.5=h9b100fa_3
+  - xorg-xorgproto=2024.1=h5eee18b_1
+  - xz=5.6.4=h5eee18b_1
+  - yacs=0.1.8=py310h06a4308_0
+  - yaml=0.2.5=h7b6447c_0
+  - zlib=1.3.1=hb25bd0a_0
+  - zstd=1.5.7=h11fc155_0
   - pip:
       - addict==2.4.0
+      - aiofiles==23.2.1
       - aiohappyeyeballs==2.6.1
       - aiohttp==3.13.3
       - aiosignal==1.4.0
+      - annotated-doc==0.0.4
+      - annotated-types==0.7.0
       - anyio==4.12.1
       - asttokens==3.0.1
       - async-timeout==5.0.1
       - attrs==25.4.0
+      - beartype==0.22.9
       - blinker==1.9.0
       - click==8.1.8
       - comm==0.2.3
       - configargparse==1.7.1
       - contourpy==1.3.0
+      - cuda-bindings==12.9.4
+      - cuda-pathfinder==1.3.3
       - cycler==0.12.1
       - dash==3.3.0
       - decorator==5.2.1
+      - discord-webhook==1.4.1
       - dotenv==0.9.9
+      - einops==0.8.2
       - exceptiongroup==1.3.1
       - executing==2.2.1
+      - fastapi==0.128.1
       - fastjsonschema==2.21.2
+      - ffmpy==1.0.0
       - filelock==3.19.1
       - flask==3.1.2
       - fonttools==4.60.2
       - frozenlist==1.8.0
       - fsspec==2025.10.0
+      - gradio==4.44.1
+      - gradio-client==1.3.0
+      - gradio-rerun==0.0.4
       - h11==0.16.0
+      - hf-transfer==0.1.9
       - hf-xet==1.2.0
       - httpcore==1.0.9
       - httpx==0.28.1
@@ -225,6 +237,7 @@ dependencies:
       - ipython==8.18.1
       - ipywidgets==8.1.8
       - itsdangerous==2.2.0
+      - jaxtyping==0.3.7
       - jedi==0.19.2
       - jinja2==3.1.6
       - joblib==1.5.3
@@ -235,20 +248,43 @@ dependencies:
       - kagglehub==0.3.13
       - kiwisolver==1.4.7
       - loguru==0.7.3
-      - markupsafe==3.0.3
+      - markdown-it-py==4.0.0
+      - markupsafe==2.1.5
       - matplotlib==3.9.4
       - matplotlib-inline==0.2.1
+      - mdurl==0.1.2
+      - mini-dust3r==0.1.2
+      - mpmath==1.3.0
       - multidict==6.7.0
       - narwhals==2.15.0
       - nbformat==5.10.4
       - nest-asyncio==1.6.0
+      - networkx==3.4.2
       - nump==5.5.5.5
       - numpy==1.26.4
+      - nvidia-cublas-cu12==12.8.4.1
+      - nvidia-cuda-cupti-cu12==12.8.90
+      - nvidia-cuda-nvrtc-cu12==12.8.93
+      - nvidia-cuda-runtime-cu12==12.8.90
+      - nvidia-cudnn-cu12==9.10.2.21
+      - nvidia-cufft-cu12==11.3.3.83
+      - nvidia-cufile-cu12==1.13.1.3
+      - nvidia-curand-cu12==10.3.9.90
+      - nvidia-cusolver-cu12==11.7.3.90
+      - nvidia-cusparse-cu12==12.5.8.93
+      - nvidia-cusparselt-cu12==0.7.1
+      - nvidia-nccl-cu12==2.27.5
+      - nvidia-nvjitlink-cu12==12.8.93
+      - nvidia-nvshmem-cu12==3.4.5
+      - nvidia-nvtx-cu12==12.8.90
       - open3d==0.19.0
+      - opencv-python==4.11.0.86
+      - orjson==3.11.7
       - packaging==25.0
       - pandas==2.3.3
       - parso==0.8.5
       - pexpect==4.9.0
+      - pillow==10.4.0
       - platformdirs==4.4.0
       - plotly==6.5.2
       - polyscope==2.5.0
@@ -257,28 +293,52 @@ dependencies:
       - psutil==7.2.1
       - ptyprocess==0.7.0
       - pure-eval==0.2.3
+      - pyarrow==23.0.0
+      - pydantic==2.12.5
+      - pydantic-core==2.41.5
+      - pydub==0.25.1
       - pygments==2.19.2
       - pyparsing==3.3.1
       - pyquaternion==0.9.9
       - python-dateutil==2.9.0.post0
       - python-dotenv==1.2.1
+      - python-multipart==0.0.22
       - pytz==2025.2
       - referencing==0.36.2
+      - rerun-sdk==0.17.0
       - retrying==1.4.2
+      - rich==14.3.2
+      - roma==1.5.4
       - rpds-py==0.27.1
+      - ruff==0.15.0
       - safe-gpu==2.0.0
+      - safetensors==0.7.0
       - scikit-learn==1.6.1
-      - scipy==1.13.1
+      - scipy==1.15.3
+      - semantic-version==2.10.0
       - shellingham==1.5.4
       - six==1.17.0
       - stack-data==0.6.3
+      - starlette==0.50.0
+      - sympy==1.14.0
       - threadpoolctl==3.6.0
+      - tomlkit==0.12.0
+      - torch==2.10.0
       - torch-geometric==2.6.1
+      - torchvision==0.25.0
       - traitlets==5.14.3
+      - trimesh==4.11.1
+      - triton==3.6.0
+      - typer==0.21.1
       - typer-slim==0.21.1
+      - typing-inspection==0.4.2
       - tzdata==2025.3
+      - uvicorn==0.40.0
+      - wadler-lindig==0.1.7
       - wcwidth==0.2.14
+      - websockets==12.0
       - werkzeug==3.1.5
       - widgetsnbextension==4.0.15
       - yarl==1.22.0
       - zipp==3.23.0
+prefix: /zfs-pool/home/xkrenem00/miniconda3/envs/bit-thesis
