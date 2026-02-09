@@ -8,6 +8,7 @@ import numpy as np
 import open3d as o3d
 from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
+from torchvision.io import read_image
 
 from dataset.downloader import ZipUrlDownloader
 from logger import logger
@@ -84,6 +85,7 @@ class CO3DDataset(InMemoryDataset):
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
         force_reload: bool = False,
+        samples_per_category: int = 20,
     ):
         self.root = root
 
@@ -93,6 +95,7 @@ class CO3DDataset(InMemoryDataset):
             categories = [categories]
 
         self.categories = categories
+        self.samples_per_category = samples_per_category
         self.transform = transform
         self.pre_transform = pre_transform
         self.pre_filter = pre_filter
@@ -220,3 +223,50 @@ class CO3DDataset(InMemoryDataset):
         os.makedirs(self.processed_dir, exist_ok=True)
 
         logger.info(f"Processing categories: {self.categories}")
+        for category in self.categories:
+            logger.info(f"Processing category: {category}")
+            category_dir = osp.join(self.raw_dir, category)
+            samples = os.listdir(category_dir)
+
+            samples = np.random.choice(
+                os.listdir(category_dir),
+                size=len(samples) if (self.samples_per_category < 0 or self.samples_per_category > len(samples)) else self.samples_per_category,
+                replace=False,
+            )
+
+            for sample in tqdm(samples, desc=f"Processing {category}", leave=False):
+                sample_dir = osp.join(category_dir, sample)
+
+                try:
+
+                    images_dir = osp.join(sample_dir, "images")
+                    masks_dir = osp.join(sample_dir, "masks")
+
+                    image_files = sorted(os.listdir(images_dir))
+                    mask_files = sorted(os.listdir(masks_dir))
+
+                    images = [osp.join(images_dir, f) for f in image_files]
+                    masks = [osp.join(masks_dir, f) for f in mask_files]
+
+                    data = Data(
+                        images=images,
+                        masks=masks,
+                        category=category,
+                        sample_id=sample,
+                        sample_dir=sample_dir,
+                    )
+
+                    if self.pre_filter is not None and not self.pre_filter(data):
+                        continue
+
+                    if self.pre_transform is not None:
+                        data = self.pre_transform(data)
+
+                    # Save each sample to disk → memory safe
+                    out_file = osp.join(
+                        self.processed_dir,
+                        f"{category}_{sample}.pt",
+                    )
+                    torch.save(data, out_file)
+                except Exception as e:
+                    logger.warning(f"Failed to process sample {sample_dir}: {e}")
