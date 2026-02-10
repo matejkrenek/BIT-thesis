@@ -15,7 +15,7 @@ dependencies:
   - bzip2=1.0.8=h5eee18b_6
   - ca-certificates=2026.1.4=hbd8a1cb_0
   - cairo=1.18.4=h44eff21_0
-  - certifi=2025.10.5=py310h06a4308_0
+  - certifi=2026.01.04=py310h06a4308_0
   - cffi=2.0.0=py310h4eded50_1
   - charset-normalizer=3.4.4=py310h06a4308_0
   - cuda=11.6.1=0
@@ -143,6 +143,7 @@ dependencies:
   - pysocks=1.7.1=py310h06a4308_1
   - python=3.10.19=h6fa692b_0
   - python_abi=3.10=3_cp310
+  - pytorch=1.13.0=py3.10_cuda11.6_cudnn8.3.2_0
   - pytorch-cuda=11.6=h867d48c_1
   - pytorch-mutex=1.0=cuda
   - pytorch3d=0.7.5=py310_cu116_pyt1130
