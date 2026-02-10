@@ -61,10 +61,9 @@ dataset = AugmentedDataset(
                     dropout_rate=rng.uniform(0.5, 0.9),
                 ),
                 Noise(rng.uniform(0.001, 0.005)),
-                Rotate(0, 0, rng.uniform(0, 360)),
             ]
         )
-        for _ in range(10)
+        for _ in range(5)
     ],
 )
 train_losses = []
@@ -329,7 +328,7 @@ try:
                     "scheduler_state": scheduler.state_dict(),
                     "val_loss": val_loss,
                 },
-                os.path.join(CHECKPOINT_DIR, "pcn_v3_best.pt"),
+                os.path.join(CHECKPOINT_DIR, "pcn_v67_best.pt"),
             )
 
     save_loss_plot(train_losses, val_losses, "final_loss_curve.png")
@@ -342,7 +341,7 @@ try:
         best_loss=best_val,
         training_time=f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m {int(elapsed % 60)}s",
         final_loss_curve_path="./final_loss_curve.png",
-        best_model_path=CHECKPOINT_DIR + "/pcn_v3_best.pth",
+        best_model_path=CHECKPOINT_DIR + "/pcn_v67_best.pth",
     )
 except Exception as e:
     print(f"[ERROR] Training interrupted: {e}")
