@@ -94,9 +94,10 @@ if OVERFIT:
     dataset = Subset(dataset, list(range(BATCH_SIZE)))
     BATCH_SIZE = int(BATCH_SIZE / 2)
 
-train_size = int(0.9 * len(dataset))
-val_size = len(dataset) - train_size
-train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=g)
+train_size = int(0.8 * len(dataset))
+val_size = int(0.1 * len(dataset))
+test_size = len(dataset) - train_size - val_size
+train_ds, val_ds, test_ds = random_split(dataset, [train_size, val_size, test_size], generator=g)
 
 train_loader = DataLoader(
     train_ds,
@@ -111,6 +112,15 @@ train_loader = DataLoader(
 
 val_loader = DataLoader(
     val_ds,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    collate_fn=pcn_collate,
+    num_workers=4,
+    generator=g,
+)
+
+test_loader = DataLoader(
+    test_ds,
     batch_size=BATCH_SIZE,
     shuffle=False,
     collate_fn=pcn_collate,
@@ -328,7 +338,7 @@ try:
                     "scheduler_state": scheduler.state_dict(),
                     "val_loss": val_loss,
                 },
-                os.path.join(CHECKPOINT_DIR, "pcn_v67_best.pt"),
+                os.path.join(CHECKPOINT_DIR, "pcn_v69_best.pt"),
             )
 
     save_loss_plot(train_losses, val_losses, "final_loss_curve.png")
@@ -341,7 +351,7 @@ try:
         best_loss=best_val,
         training_time=f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m {int(elapsed % 60)}s",
         final_loss_curve_path="./final_loss_curve.png",
-        best_model_path=CHECKPOINT_DIR + "/pcn_v67_best.pth",
+        best_model_path=CHECKPOINT_DIR + "/pcn_v69_best.pth",
     )
 except Exception as e:
     print(f"[ERROR] Training interrupted: {e}")
