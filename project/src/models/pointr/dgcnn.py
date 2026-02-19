@@ -1,20 +1,12 @@
 import torch
 from torch import nn
 from .utils import fps_indices, gather_operation
-
+from pytorch3d.ops import knn_points
 
 def knn_point(nsample, xyz, new_xyz):
-    """
-    Input:
-        nsample: max sample number in local region
-        xyz: all points, [B, N, C]
-        new_xyz: query points, [B, S, C]
-    Return:
-        group_idx: grouped points index, [B, S, nsample]
-    """
-    sqrdists = square_distance(new_xyz, xyz)
-    _, group_idx = torch.topk(sqrdists, nsample, dim = -1, largest=False, sorted=False)
-    return group_idx
+    # xyz: [B, N, 3], new_xyz: [B, S, 3]
+    out = knn_points(new_xyz, xyz, K=nsample, return_nn=False)
+    return out.idx  # [B, S, K]
 
 def square_distance(src, dst):
     """
@@ -69,7 +61,15 @@ class DGCNN_Grouper(nn.Module):
     
     @staticmethod
     def fps_downsample(coor, x, num_group):
-        xyz = coor.transpose(1, 2).contiguous() # b, n, 3
+        xyz = coor.transpose(1, 2).contiguous()  # [B, N, 3]
+
+        if torch.isnan(xyz).any() or torch.isinf(xyz).any():
+            raise RuntimeError("NaN/Inf in xyz before FPS")
+
+        B, N, _ = xyz.shape
+        if N < num_group:
+            raise RuntimeError(f"FPS requested K={num_group} but N={N}")
+
         fps_idx = fps_indices(xyz, num_group)
 
         combined_x = torch.cat([coor, x], dim=1)
@@ -93,8 +93,16 @@ class DGCNN_Grouper(nn.Module):
 
         with torch.no_grad():
 #             _, idx = knn(coor_k, coor_q)  # bs k np
-            idx = knn_point(k, coor_k.transpose(-1, -2).contiguous(), coor_q.transpose(-1, -2).contiguous()) # B G M
-            idx = idx.transpose(-1, -2).contiguous()
+            idx = knn_point(k, coor_k.transpose(-1, -2).contiguous(),
+                            coor_q.transpose(-1, -2).contiguous())  # [B, G, k]
+            idx = idx.transpose(-1, -2).contiguous()                   # [B, k, G]
+
+            # Debug checks
+            if idx.min() < 0 or idx.max() >= num_points_k:
+                raise RuntimeError(
+                    f"KNN idx out of range: min={int(idx.min())}, max={int(idx.max())}, "
+                    f"num_points_k={num_points_k}, k={k}"
+                )
             assert idx.shape[1] == k
             idx_base = torch.arange(0, batch_size, device=x_q.device).view(-1, 1, 1) * num_points_k
             idx = idx + idx_base

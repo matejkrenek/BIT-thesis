@@ -56,7 +56,7 @@ LEARNING_RATE = 1e-3
 EPOCHS = 100
 SAVE_EVERY = 10
 RESUME_FROM: Optional[str] = None
-OVERFIT = True
+OVERFIT = False
 
 # Seed for reproducibility
 SEED = 42
@@ -86,6 +86,7 @@ notifier = DiscordNotifier(
     project_name="BIT Thesis Project - PoinTr",
     project_url="https://github.com/matejkrenek/BIT-thesis",
     avatar_name="PoinTr Training Bot",
+    silent_mode=False
 )
 
 
@@ -373,6 +374,7 @@ def save_loss_plot(
     plt.plot(val_losses, label="Validation Loss", linewidth=2)
     plt.xlabel("Epoch", fontsize=12)
     plt.ylabel("Loss", fontsize=12)
+    plt.ylim(0, 0.1)
     plt.title("PoinTr Training Progress", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.3)
