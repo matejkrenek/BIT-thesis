@@ -22,6 +22,7 @@ from visualize.viewer import SampleViewer
 import random as rnd
 from pathlib import Path
 import shutil
+from visualize.utils import plot_pointcloud_to_image, plot_dense_pointcloud_to_image
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -38,15 +39,23 @@ rng = np.random.RandomState(SEED)
 np.random.seed(SEED)
 
 dataset = PhotogrammetricDataset(
-    dataset=CO3DDataset(root=DATA_FOLDER_PATH + "/data/CO3D", categories=["cup", "bench", "car"], force_reload=True, samples_per_category=10), 
+    dataset=CO3DDataset(root=DATA_FOLDER_PATH + "/data/CO3D", categories=["cup", "bench", "car"], samples_per_category=10), 
     frames_per_sample=[5, 10, 20, 25], 
     frames_strategy="uniform", 
 )
 
+sample = dataset[0]
+print(sample[0])
+plot_dense_pointcloud_to_image(sample[0], output_path=f"./sample_0_unmasked.png")
+plot_dense_pointcloud_to_image(sample[1], output_path=f"./sample_0_masked.png")
+exit(0)
 for i in range(len(dataset)):
     try:
         sample = dataset[i]
-        print(f"Sample {i}: {sample}")
+        plot_dense_pointcloud_to_image(sample[0], output_path=f"./sample_{i}_unmasked.png")
+        plot_dense_pointcloud_to_image(sample[1], output_path=f"./sample_{i}_masked.png")
+
+        break
     except Exception as e:
         continue
 

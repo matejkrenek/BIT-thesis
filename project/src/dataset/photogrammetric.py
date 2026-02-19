@@ -258,10 +258,13 @@ class PhotogrammetricDataset(Dataset):
             pointcloud_unmasked_path = data.sample_dir + f"/pointcloud_{frames_per_sample}_{self.frames_strategy}_unmasked.ply"
             pointcloud_masked_path = data.sample_dir + f"/pointcloud_{frames_per_sample}_{self.frames_strategy}_masked.ply"
 
-            if(os.path.exists(pointcloud_masked_path) or os.path.exists(pointcloud_unmasked_path)) and not self.force_reload:
+            if (os.path.exists(pointcloud_masked_path) or os.path.exists(pointcloud_unmasked_path)) and not self.force_reload:
+                pointcloud_unmasked = trimesh.load(pointcloud_unmasked_path)
+                pointcloud_masked = trimesh.load(pointcloud_masked_path)
+                
                 return (
-                    o3d.io.read_point_cloud(pointcloud_unmasked_path),
-                    o3d.io.read_point_cloud(pointcloud_masked_path),
+                    pointcloud_unmasked,
+                    pointcloud_masked,
                 )
 
             self.notifier.send_custom_notification(

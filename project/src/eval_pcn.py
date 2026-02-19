@@ -1,20 +1,20 @@
-from dataset import ShapeNetDataset, AugmentedDataset
-from dataset.defect import LargeMissingRegion, LocalDropout, Rotate, Noise, Combined
+from dataset import AugmentedDataset, ShapeNetDataset
+from dataset.defect import LargeMissingRegion, LocalDropout, Noise, Combined
 import open3d as o3d
 import numpy as np
 import os
 from dotenv import load_dotenv
 import torch
-from torch.utils.data import Subset, DataLoader, random_split
-import time
+from torch.utils.data import DataLoader, random_split
 from pytorch3d.ops import sample_farthest_points
 import safe_gpu
 from tqdm import tqdm
 from models import PCN
-from notifications import DiscordNotifier
 import random as rnd
+import matplotlib.pyplot as plt
+from visualize.utils import plot_pointcloud_to_image
 
-safe_gpu.claim_gpus(2)
+# safe_gpu.claim_gpus(1)
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -28,7 +28,7 @@ BATCH_SIZE = 128
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
 ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
 CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
-CHECKPOINT = CHECKPOINT_DIR + "/pcn_v67_best.pt"
+CHECKPOINT = CHECKPOINT_DIR + "/pcn_v69_best.pt"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 THRESHOLD = 0.005
 
@@ -108,10 +108,6 @@ test_loader = DataLoader(
     generator=g,
 )
 
-print(test_loader.dataset[0])
-print(test_loader.dataset[0])
-exit(0)
-
 model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
 checkpoint = torch.load(CHECKPOINT, map_location=DEVICE)
 model.load_state_dict(checkpoint["model_state"])
@@ -119,6 +115,7 @@ model = model.to(DEVICE)
 model.eval()
 
 from pytorch3d.ops import sample_farthest_points, knn_points
+
 
 def compute_hd95(pred, gt):
     knn = knn_points(pred, gt, K=1)
@@ -147,7 +144,9 @@ results = []
 from pytorch3d.loss import chamfer_distance
 
 with torch.no_grad():
-    for originals, padded, lengths in tqdm(val_loader):
+    index = 0
+
+    for originals, padded, lengths in tqdm(test_loader):
 
         originals = originals.to(DEVICE)
         padded = padded.to(DEVICE)
@@ -171,12 +170,13 @@ with torch.no_grad():
         f1 = compute_fscore(pred, originals, THRESHOLD)
         nn_var = compute_nn_variance(pred)
 
-
+        plot_pointcloud_to_image(defected[0], "sample_defected_" + str(index) +  ".png")
+        plot_pointcloud_to_image(pred[0], "sample_predicted_" + str(index) + ".png")
+        plot_pointcloud_to_image(originals[0], "sample_original_" + str(index) + ".png")
         
         results.append([cd.item(), hd95, f1, nn_var])
         break
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
 # -----------------------

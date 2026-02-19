@@ -18,7 +18,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
 ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
-CHECKPOINT_PATH = DATA_FOLDER_PATH + "/checkpoints/pcn_v2_best.pt"
+CHECKPOINT_PATH = DATA_FOLDER_PATH + "/checkpoints/pcn_v69_best.pt"
 
 BATCH_SIZE = 16
 NUM_WORKERS = 4
