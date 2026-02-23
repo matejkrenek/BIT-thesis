@@ -14,7 +14,7 @@ from models import PCN
 from notifications import DiscordNotifier
 import random as rnd
 
-safe_gpu.claim_gpus(3)
+safe_gpu.claim_gpus(1)
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 load_dotenv()
@@ -34,7 +34,7 @@ LR = 1e-3
 EPOCHS = 100
 SAVE_EVERY = 10  # checkpoint interval
 RESUME_FROM = None  # e.g. "checkpoints/pcn_v2_epoch_50.pt"
-OVERFIT = False  # True = overfit test
+OVERFIT = True  # True = overfit test
 
 SEED = 42
 g = torch.Generator()
@@ -97,7 +97,9 @@ if OVERFIT:
 train_size = int(0.8 * len(dataset))
 val_size = int(0.1 * len(dataset))
 test_size = len(dataset) - train_size - val_size
-train_ds, val_ds, test_ds = random_split(dataset, [train_size, val_size, test_size], generator=g)
+train_ds, val_ds, test_ds = random_split(
+    dataset, [train_size, val_size, test_size], generator=g
+)
 
 train_loader = DataLoader(
     train_ds,
