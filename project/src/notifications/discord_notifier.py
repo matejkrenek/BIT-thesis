@@ -21,6 +21,7 @@ class DiscordNotifier:
         project_url: str = "https://github.com/matejkrenek/BIT-thesis",
         author_icon_url: str = "https://cdn.top.gg/icons/42644ab0451ecf075ec9612ab7df3c16.png",
         avatar_name: str = "Unknown",
+        silent_mode: bool = False,
     ):
         """
         Initialize the Discord notifier.
@@ -36,6 +37,7 @@ class DiscordNotifier:
         self.project_url = project_url
         self.author_icon_url = author_icon_url
         self.avatar_name = avatar_name
+        self.silent_mode = silent_mode
 
     def _create_webhook(self) -> DiscordWebhook:
         """Create a new Discord webhook instance."""
@@ -128,6 +130,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
+        if self.silent_mode: return {"status": "silent_mode_enabled"}
+
         webhook = self._create_webhook()
 
         # Progress percentage and bar
@@ -225,6 +229,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
+        if self.silent_mode: return {"status": "silent_mode_enabled"}
+
         webhook = self._create_webhook()
 
         # Create error embed
@@ -288,6 +294,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
+        if self.silent_mode: return {"status": "silent_mode_enabled"}
+
         webhook = self._create_webhook()
 
         # Create start embed
@@ -344,6 +352,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
+        if self.silent_mode: return {"status": "silent_mode_enabled"}
+
         webhook = self._create_webhook()
 
         # Create completion embed
@@ -414,6 +424,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
+        if self.silent_mode: return {"status": "silent_mode_enabled"}
+        
         webhook = self._create_webhook()
 
         embed = self._create_base_embed(title, description, color)
