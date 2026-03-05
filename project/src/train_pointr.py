@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset, random_split
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 from dotenv import load_dotenv
@@ -25,16 +25,42 @@ import matplotlib.pyplot as plt
 
 from dataset import ShapeNetDataset, AugmentedDataset
 from dataset.defect import LargeMissingRegion, LocalDropout, Noise, Combined
-from models.pointr import PoinTr
 from notifications import DiscordNotifier
-
+from visualize.utils import plot_pointcloud_to_image
+from models.pointr import PoinTr
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 load_dotenv()
-safe_gpu.claim_gpus(1)
+
+
+def try_claim_gpus(num_gpus: int = 1) -> None:
+    """Attempt to claim GPUs with safe_gpu, but do not hard-fail on contention.
+
+    This keeps training runnable when GPUs are busy or when CUDA was initialized
+    before safe_gpu could place placeholders.
+    """
+    if not torch.cuda.is_available():
+        print("[INFO] CUDA is not available; skipping safe_gpu claiming")
+        return
+
+    if os.getenv("SAFE_GPU_DISABLE", "0") == "1":
+        print("[INFO] SAFE_GPU_DISABLE=1; skipping safe_gpu claiming")
+        return
+
+    try:
+        safe_gpu.claim_gpus(num_gpus)
+        print(f"[INFO] safe_gpu successfully claimed {num_gpus} GPU(s)")
+    except Exception as exc:
+        print(
+            "[WARN] safe_gpu.claim_gpus failed "
+            f"({type(exc).__name__}: {exc}). Continuing without claim."
+        )
+
+
+try_claim_gpus(1)
 
 # Suppress open3d warnings
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
@@ -52,11 +78,15 @@ CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Training hyperparameters
 BATCH_SIZE = 64
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 3e-4
+WEIGHT_DECAY = 1e-4
 EPOCHS = 100
 SAVE_EVERY = 10
 RESUME_FROM: Optional[str] = None
-OVERFIT = False
+OVERFIT = True
+TRAIN_DEFECT_AUGMENTATION_COUNT = 5
+VAL_DEFECT_AUGMENTATION_COUNT = 1
+MIN_DEFECT_POINTS = 1024
 
 # Seed for reproducibility
 SEED = 42
@@ -94,29 +124,80 @@ notifier = DiscordNotifier(
 # DATASET AND DATA LOADING
 # ============================================================================
 
-def create_dataset(defect_augmentation_count: int = 5):
-    """Create augmented ShapeNet dataset with synthetic defects."""
-    rng = np.random.RandomState(SEED)
-    
-    dataset = AugmentedDataset(
-        dataset=ShapeNetDataset(root=str(ROOT_DATA)),
-        defects=[
-            Combined(
-                [
-                    LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.3)),
-                    LocalDropout(
-                        radius=rng.uniform(0.01, 0.1),
-                        regions=5,
-                        dropout_rate=rng.uniform(0.5, 0.9),
-                    ),
-                    Noise(rng.uniform(0.001, 0.005)),
-                ]
-            )
-            for _ in range(defect_augmentation_count)
-        ],
+def create_defects(
+    rng: np.random.RandomState,
+    defect_augmentation_count: int,
+    local_dropout_regions: int,
+) -> list:
+    """Create a list of combined defect generators with controlled severity."""
+    return [
+        Combined(
+            [
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 1)),
+                LocalDropout(
+                    radius=rng.uniform(0.01, 0.1),
+                    regions=local_dropout_regions,
+                    dropout_rate=rng.uniform(0.5, 0.9),
+                ),
+                Noise(rng.uniform(0.001, 0.005)),
+            ]
+        )
+        for _ in range(defect_augmentation_count)
+    ]
+
+
+def create_dataset_splits(
+    train_size: float = 0.8,
+    val_size: float = 0.1,
+) -> Tuple[AugmentedDataset, AugmentedDataset, AugmentedDataset]:
+    """Split base ShapeNet first, then apply augmentation per split.
+
+    This avoids train/val leakage of augmented variants and keeps validation
+    corruption deterministic and milder.
+    """
+    base_dataset = ShapeNetDataset(root=str(ROOT_DATA))
+
+    if OVERFIT:
+        base_dataset = Subset(base_dataset, list(range(BATCH_SIZE * 2)))
+
+    actual_train_size = int(train_size * len(base_dataset))
+    actual_val_size = int(val_size * len(base_dataset))
+    actual_test_size = len(base_dataset) - actual_train_size - actual_val_size
+
+    train_base, val_base, test_base = random_split(
+        base_dataset,
+        [actual_train_size, actual_val_size, actual_test_size],
+        generator=g,
     )
-    
-    return dataset
+
+    train_rng = np.random.RandomState(SEED)
+    eval_rng = np.random.RandomState(SEED + 1)
+
+    train_dataset = AugmentedDataset(
+        dataset=train_base,
+        defects=create_defects(
+            rng=train_rng,
+            defect_augmentation_count=TRAIN_DEFECT_AUGMENTATION_COUNT,
+            local_dropout_regions=5,
+        ),
+    )
+
+    eval_defects = create_defects(
+        rng=eval_rng,
+        defect_augmentation_count=VAL_DEFECT_AUGMENTATION_COUNT,
+        local_dropout_regions=3,
+    )
+
+    val_dataset = AugmentedDataset(
+        dataset=val_base,
+        defects=eval_defects,
+    )
+    test_dataset = AugmentedDataset(
+        dataset=test_base,
+        defects=eval_defects,
+    )
+
+    return train_dataset, val_dataset, test_dataset
 
 
 def pointr_collate(batch) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -124,6 +205,7 @@ def pointr_collate(batch) -> Tuple[torch.Tensor, torch.Tensor]:
     Pads variable-length point clouds to the same size.
     """
     batch = [b for b in batch if b is not None]
+    batch = [b for b in batch if b[1].shape[0] >= MIN_DEFECT_POINTS]
     if len(batch) == 0:
         return None, None, None
 
@@ -143,31 +225,13 @@ def pointr_collate(batch) -> Tuple[torch.Tensor, torch.Tensor]:
 
 
 def create_data_loaders(
-    dataset,
-    train_size: float = 0.8,
-    val_size: float = 0.1,
+    train_ds,
+    val_ds,
+    test_ds,
     batch_size: int = BATCH_SIZE,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create train, validation, and test data loaders."""
-    
-    # Overfit setup for debugging
-    if OVERFIT:
-        dataset = Subset(dataset, list(range(batch_size * 2)))
-    
-    # Split dataset
-    val_test_size = 1.0 - train_size
-    test_split = (val_size / val_test_size) if val_test_size > 0 else 0
-    
-    actual_train_size = int(train_size * len(dataset))
-    actual_val_size = int(val_size * len(dataset))
-    actual_test_size = len(dataset) - actual_train_size - actual_val_size
-    
-    train_ds, val_ds, test_ds = random_split(
-        dataset,
-        [actual_train_size, actual_val_size, actual_test_size],
-        generator=g,
-    )
-    
+
     # Create loaders
     train_loader = DataLoader(
         train_ds,
@@ -207,6 +271,7 @@ def create_data_loaders(
 
 def create_model(config: PoinTrConfig) -> nn.Module:
     """Create PoinTr model with optional multi-GPU support."""
+
     model = PoinTr(config=config)
     
     if DEVICE == "cuda" and NUM_GPUS > 1:
@@ -224,7 +289,7 @@ def create_model(config: PoinTrConfig) -> nn.Module:
 def train_epoch(
     model: nn.Module,
     train_loader: DataLoader,
-    optimizer: Adam,
+    optimizer: AdamW,
     device: str,
 ) -> float:
     """Train for one epoch."""
@@ -258,6 +323,9 @@ def train_epoch(
         # Handle tuple loss (coarse, fine)
         if isinstance(loss, tuple):
             loss = sum(loss)
+
+        if not torch.isfinite(loss):
+            continue
         
         # Backward pass
         optimizer.zero_grad()
@@ -309,6 +377,9 @@ def validate(
         # Handle tuple loss
         if isinstance(loss, tuple):
             loss = sum(loss)
+
+        if not torch.isfinite(loss):
+            continue
         
         total_loss += loss.item()
         num_batches += 1
@@ -319,7 +390,7 @@ def validate(
 
 def save_checkpoint(
     model: nn.Module,
-    optimizer: Adam,
+    optimizer: AdamW,
     scheduler: StepLR,
     epoch: int,
     val_loss: float,
@@ -340,7 +411,7 @@ def save_checkpoint(
 
 def load_checkpoint(
     model: nn.Module,
-    optimizer: Adam,
+    optimizer: AdamW,
     scheduler: StepLR,
     checkpoint_path: str,
     device: str,
@@ -374,7 +445,12 @@ def save_loss_plot(
     plt.plot(val_losses, label="Validation Loss", linewidth=2)
     plt.xlabel("Epoch", fontsize=12)
     plt.ylabel("Loss", fontsize=12)
-    plt.ylim(0, 0.1)
+    # Auto-scale to reveal occasional outliers instead of hiding them.
+    all_losses = train_losses + val_losses
+    if all_losses:
+        ymax = np.percentile(all_losses, 99)
+        ymax = max(ymax * 1.2, 1e-3)
+        plt.ylim(0, ymax)
     plt.title("PoinTr Training Progress", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.3)
@@ -395,10 +471,19 @@ def main():
     
     # Create dataset and loaders
     print("[INFO] Creating dataset...")
-    dataset = create_dataset()
-    train_loader, val_loader, test_loader = create_data_loaders(dataset)
+    train_dataset, val_dataset, test_dataset = create_dataset_splits()
+
     
-    print(f"[INFO] Dataset size: {len(dataset)}")
+    train_loader, val_loader, test_loader = create_data_loaders(
+        train_dataset,
+        val_dataset,
+        test_dataset,
+    )
+
+    print(
+        f"[INFO] Effective dataset size (with variants): "
+        f"{len(train_dataset) + len(val_dataset) + len(test_dataset)}"
+    )
     print(f"[INFO] Train size: {len(train_loader.dataset)}")
     print(f"[INFO] Val size: {len(val_loader.dataset)}")
     print(f"[INFO] Test size: {len(test_loader.dataset)}")
@@ -410,7 +495,7 @@ def main():
           f"num_pred={config.num_pred}, num_query={config.num_query}")
     
     # Create optimizer and scheduler
-    optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = StepLR(optimizer, step_size=50, gamma=0.5)
     
     # Resume from checkpoint if specified

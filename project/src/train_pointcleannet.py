@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import DataLoader, Subset, random_split
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR
@@ -45,12 +46,12 @@ from notifications import DiscordNotifier
 # ============================================================================
 
 load_dotenv()
-safe_gpu.claim_gpus(1)
+safe_gpu.claim_gpus(2)
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-NUM_GPUS = torch.cuda.device_count()
+NUM_GPUS = 2
 print(f"[INFO] Available GPUs: {NUM_GPUS}")
 
 DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
@@ -58,13 +59,14 @@ ROOT_DATA = Path(DATA_FOLDER_PATH) / "data" / "ShapeNetV2"
 CHECKPOINT_DIR = Path(DATA_FOLDER_PATH) / "checkpoints" / "pointcleannet"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 LEARNING_RATE = 5e-4
 WEIGHT_DECAY = 1e-4
-EPOCHS = 120
+EPOCHS = 100
 SAVE_EVERY = 10
 RESUME_FROM: Optional[str] = None
-OVERFIT = True
+OVERFIT = False
+USE_AMP = False
 
 W_CHAMFER = 1.0
 W_CONSISTENCY = 0.02
@@ -84,7 +86,7 @@ class PointCleanNetConfig:
     hidden_dim = 256
     num_stages = 2
     max_offset = 0.05
-    query_chunk_size = 1024
+    query_chunk_size = 256
     use_point_stn = True
     use_feat_stn = True
 
@@ -109,7 +111,7 @@ notifier = DiscordNotifier(
 # ============================================================================
 
 
-def create_dataset(defect_augmentation_count: int = 6):
+def create_dataset(defect_augmentation_count: int = 2):
     """Create augmented ShapeNet dataset with photogrammetry-like denoising defects."""
     rng = np.random.RandomState(SEED)
 
@@ -258,10 +260,12 @@ def train_epoch(
     train_loader: DataLoader,
     optimizer: AdamW,
     device: str,
+    scaler: Optional[GradScaler] = None,
 ) -> float:
     model.train()
     total_loss = 0.0
     num_batches = 0
+    amp_enabled = bool(scaler is not None and scaler.is_enabled())
 
     for originals, padded, lengths in train_loader:
         if originals is None or padded is None or lengths is None:
@@ -277,31 +281,40 @@ def train_epoch(
             lengths=lengths,
         )
 
-        pred = model(defecteds)
+        optimizer.zero_grad(set_to_none=True)
 
-        if hasattr(model, "module"):
-            loss = model.module.compute_loss(
-                pred=pred,
-                target=originals,
-                input_points=defecteds,
-                w_chamfer=W_CHAMFER,
-                w_consistency=W_CONSISTENCY,
-                w_smooth=W_SMOOTH,
-            )
+        with autocast(enabled=amp_enabled):
+            pred = model(defecteds)
+
+            if hasattr(model, "module"):
+                loss = model.module.compute_loss(
+                    pred=pred,
+                    target=originals,
+                    input_points=defecteds,
+                    w_chamfer=W_CHAMFER,
+                    w_consistency=W_CONSISTENCY,
+                    w_smooth=W_SMOOTH,
+                )
+            else:
+                loss = model.compute_loss(
+                    pred=pred,
+                    target=originals,
+                    input_points=defecteds,
+                    w_chamfer=W_CHAMFER,
+                    w_consistency=W_CONSISTENCY,
+                    w_smooth=W_SMOOTH,
+                )
+
+        if amp_enabled:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
         else:
-            loss = model.compute_loss(
-                pred=pred,
-                target=originals,
-                input_points=defecteds,
-                w_chamfer=W_CHAMFER,
-                w_consistency=W_CONSISTENCY,
-                w_smooth=W_SMOOTH,
-            )
-
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
 
         total_loss += loss.item()
         num_batches += 1
@@ -333,26 +346,27 @@ def validate(
             lengths=lengths,
         )
 
-        pred = model(defecteds)
+        with autocast(enabled=(device == "cuda" and USE_AMP)):
+            pred = model(defecteds)
 
-        if hasattr(model, "module"):
-            loss = model.module.compute_loss(
-                pred=pred,
-                target=originals,
-                input_points=defecteds,
-                w_chamfer=W_CHAMFER,
-                w_consistency=W_CONSISTENCY,
-                w_smooth=W_SMOOTH,
-            )
-        else:
-            loss = model.compute_loss(
-                pred=pred,
-                target=originals,
-                input_points=defecteds,
-                w_chamfer=W_CHAMFER,
-                w_consistency=W_CONSISTENCY,
-                w_smooth=W_SMOOTH,
-            )
+            if hasattr(model, "module"):
+                loss = model.module.compute_loss(
+                    pred=pred,
+                    target=originals,
+                    input_points=defecteds,
+                    w_chamfer=W_CHAMFER,
+                    w_consistency=W_CONSISTENCY,
+                    w_smooth=W_SMOOTH,
+                )
+            else:
+                loss = model.compute_loss(
+                    pred=pred,
+                    target=originals,
+                    input_points=defecteds,
+                    w_chamfer=W_CHAMFER,
+                    w_consistency=W_CONSISTENCY,
+                    w_smooth=W_SMOOTH,
+                )
 
         total_loss += loss.item()
         num_batches += 1
@@ -445,6 +459,7 @@ def main():
 
     optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = StepLR(optimizer, step_size=40, gamma=0.5)
+    scaler = GradScaler(enabled=(DEVICE == "cuda" and USE_AMP))
 
     start_epoch = 1
     best_val_loss = float("inf")
@@ -479,7 +494,13 @@ def main():
         )
 
         for epoch in epoch_pbar:
-            train_loss = train_epoch(model, train_loader, optimizer, DEVICE)
+            train_loss = train_epoch(
+                model,
+                train_loader,
+                optimizer,
+                DEVICE,
+                scaler=scaler,
+            )
             val_loss = validate(model, val_loader, DEVICE)
 
             train_losses.append(train_loss)

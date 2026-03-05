@@ -34,7 +34,7 @@ class ChamferDistanceL1(nn.Module):
         """
         # pytorch3d's chamfer_distance returns (loss, )
         # We use abs_relative_diff which uses L1 distance by default
-        loss, _ = chamfer_distance(pred, gt, point_reduction=self.point_reduction)
+        loss, _ = chamfer_distance(pred, gt, point_reduction=self.point_reduction, norm=1)
         return loss
 
 
