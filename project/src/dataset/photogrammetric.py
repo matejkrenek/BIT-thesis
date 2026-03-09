@@ -25,12 +25,14 @@ class PhotogrammetricDataset(Dataset):
         frames_per_sample: Union[int, List[int]] = 15,
         frames_strategy: str = "uniform",
         force_reload: bool = False,
+        detailed: bool = False,
 
     ):
         self.base = dataset
         self.frames_per_sample = frames_per_sample
         self.frames_strategy = frames_strategy
         self.force_reload = force_reload
+        self.detailed = detailed
         self.model = AsymmetricCroCo3DStereo.from_pretrained(
             "nielsr/DUSt3R_ViTLarge_BaseDecoder_512_dpt"
         ).to("cuda" if torch.cuda.is_available() else "cpu")
@@ -257,6 +259,15 @@ class PhotogrammetricDataset(Dataset):
             frames_per_sample = self.frames_per_sample if isinstance(self.frames_per_sample, int) else self.frames_per_sample[variant_id]
             pointcloud_unmasked_path = data.sample_dir + f"/pointcloud_{frames_per_sample}_{self.frames_strategy}_unmasked.ply"
             pointcloud_masked_path = data.sample_dir + f"/pointcloud_{frames_per_sample}_{self.frames_strategy}_masked.ply"
+            images = data.images
+            masks = data.masks
+
+            selected_frame_paths = self.extract_frames(
+                image_dir_or_list=images,
+                num_frames=frames_per_sample,
+                strategy=self.frames_strategy,
+            )
+            selected_mask_paths = [masks[i] for i, img in enumerate(data.images) if img in selected_frame_paths]
 
             if (os.path.exists(pointcloud_masked_path) or os.path.exists(pointcloud_unmasked_path)) and not self.force_reload:
                 pointcloud_unmasked = trimesh.load(pointcloud_unmasked_path)
@@ -264,7 +275,12 @@ class PhotogrammetricDataset(Dataset):
                 
                 return (
                     pointcloud_unmasked,
+                    pointcloud_masked
+                ) if not self.detailed else (
+                    pointcloud_unmasked,
                     pointcloud_masked,
+                    selected_frame_paths,
+                    selected_mask_paths
                 )
 
             self.notifier.send_custom_notification(
@@ -278,16 +294,6 @@ class PhotogrammetricDataset(Dataset):
                     {"name": "Masked path", "value": pointcloud_masked_path, "inline": False},
                 ]
             )
-            
-            images = data.images
-            masks = data.masks
-
-            selected_frame_paths = self.extract_frames(
-                image_dir_or_list=images,
-                num_frames=frames_per_sample,
-                strategy=self.frames_strategy,
-            )
-            selected_mask_paths = [masks[i] for i, img in enumerate(data.images) if img in selected_frame_paths]
 
             optimized_results: OptimizedResult = inferece_dust3r(
                 image_dir_or_list=selected_frame_paths,
@@ -324,6 +330,11 @@ class PhotogrammetricDataset(Dataset):
             return (
                 pointcloud_unmasked,
                 pointcloud_masked,
+            ) if not self.detailed else (
+                pointcloud_unmasked,
+                pointcloud_masked,
+                selected_frame_paths,
+                selected_mask_paths
             )
         except Exception as e:
             self.notifier.send_custom_notification(

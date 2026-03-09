@@ -13,6 +13,7 @@ from models import PCN
 import random as rnd
 import matplotlib.pyplot as plt
 from visualize.utils import plot_pointcloud_to_image
+from metrics import chamfer_distance_metric, fscore_metric, hausdorff_distance_metric
 
 # safe_gpu.claim_gpus(1)
 
@@ -114,34 +115,7 @@ model.load_state_dict(checkpoint["model_state"])
 model = model.to(DEVICE)
 model.eval()
 
-from pytorch3d.ops import sample_farthest_points, knn_points
-
-
-def compute_hd95(pred, gt):
-    knn = knn_points(pred, gt, K=1)
-    dists = knn.dists.squeeze(-1)
-    return torch.quantile(dists, 0.95).item()
-
-def compute_fscore(pred, gt, threshold):
-    knn1 = knn_points(pred, gt, K=1)
-    knn2 = knn_points(gt, pred, K=1)
-
-    dist1 = knn1.dists.squeeze(-1)
-    dist2 = knn2.dists.squeeze(-1)
-
-    precision = (dist1 < threshold).float().mean()
-    recall = (dist2 < threshold).float().mean()
-
-    return (2 * precision * recall / (precision + recall + 1e-8)).item()
-
-def compute_nn_variance(pc):
-    knn = knn_points(pc, pc, K=2)
-    dists = knn.dists[:, :, 1]
-    return torch.var(dists).item()
-
 results = []
-
-from pytorch3d.loss import chamfer_distance
 
 with torch.no_grad():
     index = 0
@@ -165,16 +139,15 @@ with torch.no_grad():
             K=originals.shape[1],
         )
 
-        cd, _ = chamfer_distance(pred, originals)
-        hd95 = compute_hd95(pred, originals)
-        f1 = compute_fscore(pred, originals, THRESHOLD)
-        nn_var = compute_nn_variance(pred)
+        cd = chamfer_distance_metric(pred, originals).item()
+        hd = hausdorff_distance_metric(pred, originals).item()
+        f1 = fscore_metric(pred, originals, THRESHOLD).item()
 
         plot_pointcloud_to_image(defected[0], "sample_defected_" + str(index) +  ".png")
         plot_pointcloud_to_image(pred[0], "sample_predicted_" + str(index) + ".png")
         plot_pointcloud_to_image(originals[0], "sample_original_" + str(index) + ".png")
         
-        results.append([cd.item(), hd95, f1, nn_var])
+        results.append([cd, hd, f1])
         break
 
 import pandas as pd
@@ -185,7 +158,7 @@ import pandas as pd
 
 df = pd.DataFrame(
     results,
-    columns=["Chamfer", "HD95", "F1@1%", "NN_Variance"]
+    columns=["Chamfer", "Hausdorff", "F-score"]
 )
 
 df.to_csv("evaluation_results.csv", index=False)
@@ -206,10 +179,9 @@ plt.close()
 plt.figure(figsize=(8,6))
 plt.boxplot([
     df["Chamfer"],
-    df["HD95"],
-    df["F1@1%"],
-    df["NN_Variance"]
-], tick_labels=["CD", "HD95", "F1", "NN_Var"])
+    df["Hausdorff"],
+    df["F-score"],
+], tick_labels=["CD", "Hausdorff", "F-score"])
 plt.title("Metric Distribution")
 plt.savefig("metrics_boxplot.png")
 plt.close()
