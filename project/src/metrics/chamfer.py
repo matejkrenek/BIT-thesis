@@ -20,6 +20,9 @@ def chamfer_distance_metric(
     pred = ensure_batched(pred)
     gt = ensure_batched(gt)
 
+    if batch_reduction == "none":
+        batch_reduction = None
+
     cd, _ = chamfer_distance(
         pred,
         gt,

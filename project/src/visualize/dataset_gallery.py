@@ -31,7 +31,7 @@ class GalleryConfig:
     border_linewidth: float = 0.8
     description_color: str = "#6b7280"
     outer_wspace: float = 0.1
-    outer_hspace: float = 0.2
+    outer_hspace: float = 0.1
     inner_wspace: float = 0
     inner_hspace: float = 0
     block_view_width: float = 1
@@ -41,6 +41,7 @@ class GalleryConfig:
     image_grid_cols: int = 0
     image_grid_max_images: int = 0
     image_row_height_ratio: float = 1.8
+    side_note_fontsize: int = 5
 
 
 def _to_numpy_points(obj: Any) -> Optional[np.ndarray]:
@@ -300,6 +301,8 @@ def create_dataset_gallery_figure(
     sample_indices: Sequence[int],
     descriptions: Optional[Sequence[str]] = None,
     badge_labels: Optional[Sequence[Sequence[str]]] = None,
+    badge_details: Optional[Sequence[Sequence[str]]] = None,
+    side_notes: Optional[Sequence[str]] = None,
     config: Optional[GalleryConfig] = None,
     seed: int = 42,
 ):
@@ -364,6 +367,12 @@ def create_dataset_gallery_figure(
         if len(row_badges) < len(clouds):
             for i in range(len(row_badges), len(clouds)):
                 row_badges.append(f"Cloud {i + 1}")
+
+        row_details: List[str] = []
+        if badge_details is not None and sample_idx < len(badge_details):
+            row_details = [d or "" for d in badge_details[sample_idx]]
+        if len(row_details) < len(clouds):
+            row_details.extend([""] * (len(clouds) - len(row_details)))
 
         inner = outer[sr, sc].subgridspec(
             row_count,
@@ -445,6 +454,20 @@ def create_dataset_gallery_figure(
                     "linewidth": 0.8,
                 },
             )
+
+            detail_text = row_details[group_idx]
+            if detail_text:
+                badge_ax.text(
+                    0.05,
+                    0.70,
+                    detail_text,
+                    transform=badge_ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=max(4, config.badge_fontsize - 1),
+                    color="#111827",
+                    linespacing=1.2,
+                )
             badge_ax.set_axis_off()
 
         border_ax = fig.add_subplot(outer[sr, sc])
@@ -467,19 +490,6 @@ def create_dataset_gallery_figure(
             )
         )
 
-        border_ax.text(
-            0.5,
-            1.05,
-            f"Sample {sample_indices[sample_idx]}",
-            transform=border_ax.transAxes,
-            ha="center",
-            va="bottom",
-            fontsize=config.sample_title_fontsize,
-            fontweight="bold",
-            color="#111827",
-            clip_on=False,
-        )
-
         desc = ""
         if descriptions is not None and sample_idx < len(descriptions):
             desc = descriptions[sample_idx] or ""
@@ -495,6 +505,29 @@ def create_dataset_gallery_figure(
             color=config.description_color,
             clip_on=False,
         )
+
+        side_note = ""
+        if side_notes is not None and sample_idx < len(side_notes):
+            side_note = side_notes[sample_idx] or ""
+        if side_note:
+            border_ax.text(
+                1.02,
+                0.5,
+                side_note,
+                transform=border_ax.transAxes,
+                ha="left",
+                va="center",
+                fontsize=config.side_note_fontsize,
+                color="#1f2937",
+                clip_on=False,
+                linespacing=1.25,
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": "#f8fafc",
+                    "edgecolor": "#cbd5e1",
+                    "linewidth": 0.7,
+                },
+            )
     return fig
 
 
@@ -506,6 +539,8 @@ def save_dataset_gallery(
     sample_indices: Sequence[int],
     descriptions: Optional[Sequence[str]] = None,
     badge_labels: Optional[Sequence[Sequence[str]]] = None,
+    badge_details: Optional[Sequence[Sequence[str]]] = None,
+    side_notes: Optional[Sequence[str]] = None,
     config: Optional[GalleryConfig] = None,
     seed: int = 42,
 ):
@@ -516,6 +551,8 @@ def save_dataset_gallery(
         sample_indices=sample_indices,
         descriptions=descriptions,
         badge_labels=badge_labels,
+        badge_details=badge_details,
+        side_notes=side_notes,
         config=config,
         seed=seed,
     )
