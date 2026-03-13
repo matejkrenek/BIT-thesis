@@ -30,7 +30,7 @@ class PCNDecoder(nn.Module):
             nn.Conv1d(512, 3, 1),
         )
 
-        # folding seed (registered as buffer → správně se přesouvá mezi CPU/GPU)
+        # folding seed (registered as buffer)
         a = torch.linspace(-0.05, 0.05, steps=grid_size).view(1, grid_size)
         b = torch.linspace(-0.05, 0.05, steps=grid_size).view(grid_size, 1)
 

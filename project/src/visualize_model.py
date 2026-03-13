@@ -416,7 +416,7 @@ def main() -> None:
     metrics = _parse_metrics(args.metrics)
     model_specs = _parse_model_specs(args.model_spec)
 
-    loader, _, _ = _build_dataset_loader(args)
+    _, _, loader = _build_dataset_loader(args)
     dataset = loader.dataset
 
     if len(dataset) == 0:
