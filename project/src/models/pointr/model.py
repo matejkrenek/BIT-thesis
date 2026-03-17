@@ -14,7 +14,8 @@ class Fold(nn.Module):
 
         a = torch.linspace(-1., 1., steps=step, dtype=torch.float).view(1, step).expand(step, step).reshape(1, -1)
         b = torch.linspace(-1., 1., steps=step, dtype=torch.float).view(step, 1).expand(step, step).reshape(1, -1)
-        self.folding_seed = torch.cat([a, b], dim=0).cuda()
+        # Keep seed device-agnostic and move with module/device automatically.
+        self.register_buffer("folding_seed", torch.cat([a, b], dim=0))
 
         self.folding1 = nn.Sequential(
             nn.Conv1d(in_channel + 2, hidden_dim, 1),
@@ -82,7 +83,7 @@ class PoinTr(nn.Module):
     def forward(self, xyz):
         q, coarse_point_cloud = self.base_model(xyz) # B M C and B M 3
     
-        B, M ,C = q.shape
+        B, M, C = q.shape
 
         global_feature = self.increase_dim(q.transpose(1,2)).transpose(1,2) # B M 1024
         global_feature = torch.max(global_feature, dim=1)[0] # B 1024

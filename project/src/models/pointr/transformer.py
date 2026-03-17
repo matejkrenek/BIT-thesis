@@ -358,11 +358,14 @@ class PCTransformer(nn.Module):
     def pos_encoding_sin_wave(self, coor):
         # ref to https://arxiv.org/pdf/2003.08934v2.pdf
         D = 64 #
-        # normal the coor into [-1, 1], batch wise
-        normal_coor = 2 * ((coor - coor.min()) / (coor.max() - coor.min())) - 1 
+        # Normalize each sample independently to avoid cross-batch scale coupling.
+        coor_min = coor.amin(dim=(1, 2), keepdim=True)
+        coor_max = coor.amax(dim=(1, 2), keepdim=True)
+        denom = (coor_max - coor_min).clamp_min(1e-6)
+        normal_coor = 2 * ((coor - coor_min) / denom) - 1
 
         # define sin wave freq
-        freqs = torch.arange(D, dtype=torch.float).cuda() 
+        freqs = torch.arange(D, dtype=torch.float, device=coor.device)
         freqs = np.pi * (2**freqs)       
 
         freqs = freqs.view(*[1]*len(normal_coor.shape), -1) # 1 x 1 x 1 x D

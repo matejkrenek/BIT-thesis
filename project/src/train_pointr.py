@@ -8,7 +8,7 @@ import os
 import time
 import random
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -60,7 +60,7 @@ def try_claim_gpus(num_gpus: int = 1) -> None:
         )
 
 
-try_claim_gpus(1)
+# try_claim_gpus(1)
 
 # Suppress open3d warnings
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
@@ -83,10 +83,12 @@ WEIGHT_DECAY = 1e-4
 EPOCHS = 100
 SAVE_EVERY = 10
 RESUME_FROM: Optional[str] = None
-OVERFIT = False
+OVERFIT = True
 TRAIN_DEFECT_AUGMENTATION_COUNT = 5
 VAL_DEFECT_AUGMENTATION_COUNT = 1
 MIN_DEFECT_POINTS = 1024
+DEBUG_DIAGNOSTICS = os.getenv("POINTR_DEBUG", "0") == "1"
+DEBUG_EVERY_STEPS = int(os.getenv("POINTR_DEBUG_EVERY", "20"))
 
 # Seed for reproducibility
 SEED = 42
@@ -99,9 +101,9 @@ g.manual_seed(SEED)
 # PoinTr specific configuration
 class PoinTrConfig:
     trans_dim = 384
-    knn_layer = 0
+    knn_layer = 1
     num_pred = 16384
-    num_query = 128
+    num_query = 224
 
 
 # ============================================================================
@@ -157,47 +159,31 @@ def create_dataset_splits(
     """
     base_dataset = ShapeNetDataset(root=str(ROOT_DATA))
 
-    if OVERFIT:
-        base_dataset = Subset(base_dataset, list(range(BATCH_SIZE * 2)))
-
-    actual_train_size = int(train_size * len(base_dataset))
-    actual_val_size = int(val_size * len(base_dataset))
-    actual_test_size = len(base_dataset) - actual_train_size - actual_val_size
-
-    train_base, val_base, test_base = random_split(
-        base_dataset,
-        [actual_train_size, actual_val_size, actual_test_size],
-        generator=g,
-    )
-
-    train_rng = np.random.RandomState(SEED)
-    eval_rng = np.random.RandomState(SEED + 1)
-
-    train_dataset = AugmentedDataset(
-        dataset=train_base,
+    dataset = AugmentedDataset(
+        dataset=base_dataset,
         defects=create_defects(
-            rng=train_rng,
+            rng=np.random.RandomState(SEED),
             defect_augmentation_count=TRAIN_DEFECT_AUGMENTATION_COUNT,
             local_dropout_regions=5,
         ),
     )
 
-    eval_defects = create_defects(
-        rng=eval_rng,
-        defect_augmentation_count=VAL_DEFECT_AUGMENTATION_COUNT,
-        local_dropout_regions=3,
+    if OVERFIT:
+        global BATCH_SIZE
+        dataset = Subset(dataset, list(range(BATCH_SIZE)))
+        BATCH_SIZE = int(BATCH_SIZE / 2)
+
+    actual_train_size = int(train_size * len(dataset))
+    actual_val_size = int(val_size * len(dataset))
+    actual_test_size = len(dataset) - actual_train_size - actual_val_size
+
+    train_base, val_base, test_base = random_split(
+        dataset,
+        [actual_train_size, actual_val_size, actual_test_size],
+        generator=g,
     )
 
-    val_dataset = AugmentedDataset(
-        dataset=val_base,
-        defects=eval_defects,
-    )
-    test_dataset = AugmentedDataset(
-        dataset=test_base,
-        defects=eval_defects,
-    )
-
-    return train_dataset, val_dataset, test_dataset
+    return train_base, val_base, test_base
 
 
 def pointr_collate(batch) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -291,13 +277,32 @@ def train_epoch(
     train_loader: DataLoader,
     optimizer: AdamW,
     device: str,
-) -> float:
+) -> Tuple[float, float, float]:
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
+    total_coarse = 0.0
+    total_fine = 0.0
     num_batches = 0
 
-    for originals, padded, lengths in train_loader:
+    def _grad_norm(module: nn.Module) -> float:
+        total = 0.0
+        count = 0
+        for param in module.parameters():
+            if param.grad is None:
+                continue
+            total += float(param.grad.detach().norm(2).item())
+            count += 1
+        return total / max(count, 1)
+
+    def _stats(name: str, tensor: torch.Tensor) -> str:
+        t = tensor.detach()
+        return (
+            f"{name}: mean={t.mean().item():.6f} std={t.std().item():.6f} "
+            f"min={t.min().item():.6f} max={t.max().item():.6f}"
+        )
+
+    for step_idx, (originals, padded, lengths) in enumerate(train_loader, start=1):
         if originals is None or padded is None or lengths is None:
             continue
 
@@ -319,25 +324,66 @@ def train_epoch(
             loss = model.module.get_loss((pred_coarse, pred_fine), originals)
         else:
             loss = model.get_loss((pred_coarse, pred_fine), originals)
-        
+
+        coarse_loss_value = None
+        fine_loss_value = None
+
         # Handle tuple loss (coarse, fine)
         if isinstance(loss, tuple):
+            if len(loss) >= 2:
+                coarse_loss_value = float(loss[0].detach().item())
+                fine_loss_value = float(loss[1].detach().item())
             loss = sum(loss)
 
         if not torch.isfinite(loss):
+            if DEBUG_DIAGNOSTICS:
+                print(
+                    f"[DIAG][train][step={step_idx}] non-finite total loss, "
+                    f"lengths(min/mean/max)={lengths.min().item()}/"
+                    f"{lengths.float().mean().item():.2f}/{lengths.max().item()}"
+                )
             continue
         
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
+
+        if DEBUG_DIAGNOSTICS and step_idx % max(DEBUG_EVERY_STEPS, 1) == 0:
+            core_model = model.module if hasattr(model, "module") else model
+            grad_parts: Dict[str, float] = {
+                "base_model": _grad_norm(core_model.base_model),
+                "foldingnet": _grad_norm(core_model.foldingnet),
+                "increase_dim": _grad_norm(core_model.increase_dim),
+                "reduce_map": _grad_norm(core_model.reduce_map),
+            }
+            print(
+                f"[DIAG][train][step={step_idx}] "
+                f"total={loss.item():.6f} coarse={coarse_loss_value} fine={fine_loss_value} "
+                f"lengths(min/mean/max)={lengths.min().item()}/"
+                f"{lengths.float().mean().item():.2f}/{lengths.max().item()}"
+            )
+            print("[DIAG][train] " + _stats("defecteds", defecteds))
+            print("[DIAG][train] " + _stats("pred_coarse", pred_coarse))
+            print("[DIAG][train] " + _stats("pred_fine", pred_fine))
+            print(
+                "[DIAG][train] grad_norms="
+                + ", ".join(f"{k}:{v:.6f}" for k, v in grad_parts.items())
+            )
+
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         
         total_loss += loss.item()
+        if coarse_loss_value is not None:
+            total_coarse += coarse_loss_value
+        if fine_loss_value is not None:
+            total_fine += fine_loss_value
         num_batches += 1
-    
+
     avg_loss = total_loss / max(num_batches, 1)
-    return avg_loss
+    avg_coarse = total_coarse / max(num_batches, 1)
+    avg_fine = total_fine / max(num_batches, 1)
+    return avg_loss, avg_coarse, avg_fine
 
 
 @torch.no_grad()
@@ -345,10 +391,12 @@ def validate(
     model: nn.Module,
     val_loader: DataLoader,
     device: str,
-) -> float:
+) -> Tuple[float, float, float]:
     """Validate model."""
     model.eval()
     total_loss = 0.0
+    total_coarse = 0.0
+    total_fine = 0.0
     num_batches = 0
     
     for originals, padded, lengths in val_loader:
@@ -373,19 +421,37 @@ def validate(
             loss = model.module.get_loss((pred_coarse, pred_fine), originals)
         else:
             loss = model.get_loss((pred_coarse, pred_fine), originals)
+
+        coarse_loss_value = None
+        fine_loss_value = None
         
         # Handle tuple loss
         if isinstance(loss, tuple):
+            if len(loss) >= 2:
+                coarse_loss_value = float(loss[0].detach().item())
+                fine_loss_value = float(loss[1].detach().item())
             loss = sum(loss)
 
         if not torch.isfinite(loss):
+            if DEBUG_DIAGNOSTICS:
+                print(
+                    "[DIAG][val] non-finite total loss, "
+                    f"lengths(min/mean/max)={lengths.min().item()}/"
+                    f"{lengths.float().mean().item():.2f}/{lengths.max().item()}"
+                )
             continue
         
         total_loss += loss.item()
+        if coarse_loss_value is not None:
+            total_coarse += coarse_loss_value
+        if fine_loss_value is not None:
+            total_fine += fine_loss_value
         num_batches += 1
     
     avg_loss = total_loss / max(num_batches, 1)
-    return avg_loss
+    avg_coarse = total_coarse / max(num_batches, 1)
+    avg_fine = total_fine / max(num_batches, 1)
+    return avg_loss, avg_coarse, avg_fine
 
 
 def save_checkpoint(
@@ -471,18 +537,18 @@ def main():
     
     # Create dataset and loaders
     print("[INFO] Creating dataset...")
-    train_dataset, val_dataset, test_dataset = create_dataset_splits()
+    train_base, val_base, test_base = create_dataset_splits()
 
     
     train_loader, val_loader, test_loader = create_data_loaders(
-        train_dataset,
-        val_dataset,
-        test_dataset,
+        train_base,
+        val_base,
+        test_base,
     )
 
     print(
         f"[INFO] Effective dataset size (with variants): "
-        f"{len(train_dataset) + len(val_dataset) + len(test_dataset)}"
+        f"{len(train_base) + len(val_base) + len(test_base)}"
     )
     print(f"[INFO] Train size: {len(train_loader.dataset)}")
     print(f"[INFO] Val size: {len(val_loader.dataset)}")
@@ -492,7 +558,7 @@ def main():
     config = PoinTrConfig()
     model = create_model(config)
     print(f"[INFO] Model created with config: trans_dim={config.trans_dim}, "
-          f"num_pred={config.num_pred}, num_query={config.num_query}")
+          f"num_pred={config.num_pred}, num_query={config.num_query}, knn_layer={config.knn_layer}")
     
     # Create optimizer and scheduler
     optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
@@ -536,8 +602,17 @@ def main():
         
         for epoch in epoch_pbar:
             # Train and validate
-            train_loss = train_epoch(model, train_loader, optimizer, DEVICE)
-            val_loss = validate(model, val_loader, DEVICE)
+            train_loss, train_coarse, train_fine = train_epoch(
+                model, train_loader, optimizer, DEVICE
+            )
+            val_loss, val_coarse, val_fine = validate(model, val_loader, DEVICE)
+
+            if DEBUG_DIAGNOSTICS:
+                print(
+                    f"[DIAG][epoch={epoch}] "
+                    f"train(total/coarse/fine)={train_loss:.6f}/{train_coarse:.6f}/{train_fine:.6f} "
+                    f"val(total/coarse/fine)={val_loss:.6f}/{val_coarse:.6f}/{val_fine:.6f}"
+                )
             
             train_losses.append(train_loss)
             val_losses.append(val_loss)

@@ -1,41 +1,41 @@
-from pytorch3d.ops import sample_farthest_points, knn_points
 from pytorch3d.loss import chamfer_distance
+from pytorch3d.ops import sample_farthest_points, knn_points
 import torch
 from torch import nn
 
 
+def _filter_ignore_zeros(xyz1: torch.Tensor, xyz2: torch.Tensor, ignore_zeros: bool):
+    """Match official behavior: only filter zeros when batch size is 1."""
+    if xyz1.size(0) == 1 and ignore_zeros:
+        non_zeros1 = torch.sum(xyz1, dim=2).ne(0)
+        non_zeros2 = torch.sum(xyz2, dim=2).ne(0)
+        xyz1 = xyz1[non_zeros1].unsqueeze(dim=0)
+        xyz2 = xyz2[non_zeros2].unsqueeze(dim=0)
+    return xyz1, xyz2
+
+
 class ChamferDistanceL1(nn.Module):
-    """
-    Chamfer Distance L1 loss using pytorch3d operations.
-    Computes the L1-based Chamfer distance between two point clouds.
-    
-    Returns:
-        Tuple of (loss, ) where loss is the computed Chamfer distance
-    """
-    
-    def __init__(self, point_reduction: str = "mean"):
-        """
-        Args:
-            point_reduction: How to reduce distances. Can be 'mean' or 'sum'
-        """
+    """Official-style Chamfer L1: (mean(sqrt(dist1)) + mean(sqrt(dist2))) / 2."""
+
+    def __init__(self, ignore_zeros: bool = False):
         super().__init__()
-        self.point_reduction = point_reduction
-    
-    def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
-        """
-        Compute Chamfer distance between prediction and ground truth.
-        
-        Args:
-            pred: Predicted point cloud [B, N, 3]
-            gt: Ground truth point cloud [B, M, 3]
-            
-        Returns:
-            Chamfer distance loss (scalar tensor)
-        """
-        # pytorch3d's chamfer_distance returns (loss, )
-        # We use abs_relative_diff which uses L1 distance by default
-        loss, _ = chamfer_distance(pred, gt, point_reduction=self.point_reduction, norm=1)
-        return loss
+        self.ignore_zeros = ignore_zeros
+
+    def forward(self, xyz1: torch.Tensor, xyz2: torch.Tensor) -> torch.Tensor:
+        xyz1, xyz2 = _filter_ignore_zeros(xyz1, xyz2, self.ignore_zeros)
+        # Use PyTorch3D chamfer to obtain per-point squared-L2 directional terms.
+        (dist1, dist2), _ = chamfer_distance(
+            xyz1,
+            xyz2,
+            batch_reduction=None,
+            point_reduction=None,
+            norm=2,
+            single_directional=False,
+        )
+        dist1 = torch.sqrt(dist1.clamp_min(1e-12))
+        dist2 = torch.sqrt(dist2.clamp_min(1e-12))
+        # Match official averaging: mean over points then mean over batch.
+        return ((dist1.mean(dim=1) + dist2.mean(dim=1)) / 2).mean()
 
 
 def fps(pc: torch.Tensor, num: int) -> torch.Tensor:
@@ -105,6 +105,19 @@ def gather_operation(features: torch.Tensor, indices: torch.Tensor) -> torch.Ten
     """
     batch_size, num_channels, _ = features.shape
     _, num_group = indices.shape
+
+    if indices.dtype != torch.long:
+        indices = indices.long()
+
+    if indices.numel() > 0:
+        min_idx = int(indices.min().item())
+        max_idx = int(indices.max().item())
+        max_valid = features.shape[2] - 1
+        if min_idx < 0 or max_idx > max_valid:
+            raise RuntimeError(
+                "gather_operation index out of bounds: "
+                f"min={min_idx}, max={max_idx}, valid=[0,{max_valid}]"
+            )
     
     # Expand indices to match feature dimensions for gathering
     indices_expanded = indices.unsqueeze(1).expand(batch_size, num_channels, num_group)
