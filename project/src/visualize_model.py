@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from dataset import AugmentedDataset, ModelNetDataset, ShapeNetDataset
 from dataset.defect import Combined, LargeMissingRegion, LocalDropout, Noise
 from metrics import chamfer_distance_metric, fscore_metric, hausdorff_distance_metric
-from models import PCN
+from models import PCN, PoinTr
 from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
 
 
@@ -83,7 +83,7 @@ def _parse_model_specs(values: Sequence[str]) -> List[ModelSpec]:
         model_type = parts[1].strip().lower()
         checkpoint = parts[2].strip()
 
-        if model_type not in {"pcn"}:
+        if model_type not in {"pcn", "pointr"}:
             raise ValueError(f"Unsupported model_type '{model_type}' in '{raw}'")
         if not name:
             raise ValueError(f"Model name is empty in '{raw}'")
@@ -123,6 +123,13 @@ def _load_state_dict(model: torch.nn.Module, checkpoint_path: str, device: str) 
 def _build_model(spec: ModelSpec, device: str) -> torch.nn.Module:
     if spec.model_type == "pcn":
         model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
+    elif spec.model_type == "pointr":
+        class PoinTrConfig:
+            trans_dim = 384
+            knn_layer = 1
+            num_pred = 16384
+            num_query = 224
+        model = PoinTr(config=PoinTrConfig())
     else:
         raise ValueError(f"Unsupported model type: {spec.model_type}")
 
@@ -135,6 +142,8 @@ def _build_model(spec: ModelSpec, device: str) -> torch.nn.Module:
 def _predict(model: torch.nn.Module, model_type: str, defected_batched: torch.Tensor, target_points: int) -> torch.Tensor:
     with torch.no_grad():
         if model_type == "pcn":
+            _, pred = model(defected_batched)
+        if model_type == "pointr":
             _, pred = model(defected_batched)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
