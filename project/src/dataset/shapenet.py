@@ -186,7 +186,6 @@ class ShapeNetDataset(InMemoryDataset):
                     vertices = np.asarray(mesh.vertices).astype(np.float32)
                     faces = np.asarray(mesh.triangles)
 
-                    # Sample 8192 points (4096 is possible too)
                     pcd = mesh.sample_points_uniformly(number_of_points=8192)
                     pc_points = np.asarray(pcd.points).astype(np.float32)
 

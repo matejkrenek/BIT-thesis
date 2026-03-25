@@ -1,9 +1,0 @@
-services:
-  app:
-    build: .
-    volumes:
-      - ./src:/app/src
-      - ./data:/app/data
-      - ./outputs:/app/outputs
-    tty: true
-    stdin_open: true

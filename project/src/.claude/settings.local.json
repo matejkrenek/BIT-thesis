@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -e bash -c \"source ~/miniconda3/etc/profile.d/conda.sh && conda activate bit-thesis && conda install -c nvidia/label/cuda-12.1.0 cuda-toolkit -y 2>&1 | tail -20\")",
+      "Bash(wsl -e bash -c \"source ~/miniconda3/etc/profile.d/conda.sh && conda activate bit-thesis && pip cache purge && echo ''cache cleared''\")",
+      "WebFetch(domain:github.com)",
+      "Bash(wsl -e bash -c \"cat /home/matejkrenek/fitvut/bit-thesis/project/src/environment.old.yml\")",
+      "Bash(wsl -e bash -c \"find /home/matejkrenek/fitvut/bit-thesis -name ''environment.old.yml'' 2>/dev/null; find /home/matejkrenek/fitvut/bit-thesis -name ''*.yml'' 2>/dev/null\")",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}
