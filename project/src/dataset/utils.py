@@ -1,48 +1,261 @@
-from dataset import AugmentedDataset, ShapeNetDataset
-from dataset.defect import Combined, LargeMissingRegion, LocalDropout, Noise
-import torch
-from torch.utils.data.dataset import Dataset
-from torch.utils.data import random_split
-import numpy as np
-from torch.utils.data import DataLoader
 from typing import Callable, Optional, Tuple
 
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, random_split
+from torch.utils.data.dataset import Dataset
 
-def create_augmented_dataset(
-    base: Dataset,
+from dataset import AugmentedDataset, ShapeNetDataset
+from dataset.defect import (
+    BelowObjectPlane,
+    Combined,
+    LargeMissingRegion,
+    LocalDropout,
+    Noise,
+    OutlierPoints,
+    SurfaceToPlaneBridge,
+)
+from dataset.wrapper import (
+    AugmentWrapperDataset,
+    DenseWrapperDataset,
+    NormalizeWrapperDataset,
+    PatchWrapperDataset,
+)
+
+
+def _prepare_dataset_pipeline(
+    base_dataset: Dataset,
+    defects: list,
+    dense: bool,
+    dense_root: Optional[str],
+    dense_num_points: int,
+    normalize: bool,
+    split_into_patches: bool,
+    patch_size: int,
+    num_patches: Optional[int],
+    normalize_patches: bool,
+    overlap_ratio: float,
+    max_extra_patches: Optional[int],
     seed: int,
+) -> Dataset:
+    dataset: Dataset = base_dataset
+
+    if dense:
+        if not dense_root:
+            raise ValueError("dense_root must be provided when dense=True")
+        dataset = DenseWrapperDataset(
+            dataset=dataset,
+            root=dense_root,
+            num_points=dense_num_points,
+        )
+
+    if normalize:
+        dataset = NormalizeWrapperDataset(dataset)
+
+    dataset = AugmentWrapperDataset(
+        dataset=dataset,
+        defects=defects,
+        seed=seed,
+    )
+
+    if split_into_patches:
+        dataset = PatchWrapperDataset(
+            dataset=dataset,
+            patch_size=patch_size,
+            num_patches=num_patches,
+            normalize_patches=normalize_patches,
+            overlap_ratio=overlap_ratio,
+            max_extra_patches=max_extra_patches,
+        )
+
+    return dataset
+
+
+def create_basic_reconstruction_dataset(
+    base_dataset: Optional[Dataset] = None,
+    root: Optional[str] = None,
+    seed: int = 42,
     defect_augmentation_count: int = 5,
     local_dropout_regions: int = 5,
-) -> AugmentedDataset:
+    dense: bool = False,
+    dense_root: Optional[str] = None,
+    dense_num_points: int = 100_000,
+    normalize: bool = True,
+    visualize: bool = False,
+    split_into_patches: bool = False,
+    patch_size: int = 8192,
+    num_patches: Optional[int] = None,
+    normalize_patches: bool = False,
+    overlap_ratio: float = 0.5,
+    max_extra_patches: Optional[int] = None,
+) -> Dataset:
     """
-    Creates an augmented dataset by applying random transformations to the original dataset.
+    Build a reconstruction dataset with structural missing parts and small local holes.
 
-    Args:
-        dataset (ShapeNetDataset): The original ShapeNet dataset to augment.
-        num_augmentations (int): The number of augmented samples to create for each original sample.
-        noise_std (float): The standard deviation of the Gaussian noise to add to the point clouds.
-
-    Returns:
-        AugmentedDataset: A new dataset containing the augmented samples.
+    Defects:
+      - LargeMissingRegion (missing parts)
+      - LocalDropout (small holes)
     """
+    if base_dataset is None:
+        if not root:
+            raise ValueError("Either base_dataset or root must be provided")
+        base_dataset = ShapeNetDataset(root=root)
+
     rng = np.random.RandomState(seed)
     defects = [
         Combined(
             [
-                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.3)),
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.35)),
                 LocalDropout(
-                    radius=rng.uniform(0.01, 0.1),
+                    radius=rng.uniform(0.01, 0.06),
                     regions=local_dropout_regions,
-                    dropout_rate=rng.uniform(0.5, 0.9),
+                    dropout_rate=rng.uniform(0.45, 0.9),
                 ),
             ]
         )
         for _ in range(defect_augmentation_count)
     ]
-    return AugmentedDataset(dataset=base, defects=defects)
+
+    dataset = _prepare_dataset_pipeline(
+        base_dataset=base_dataset,
+        defects=defects,
+        dense=dense,
+        dense_root=dense_root,
+        dense_num_points=dense_num_points,
+        normalize=normalize,
+        split_into_patches=split_into_patches,
+        patch_size=patch_size,
+        num_patches=num_patches,
+        normalize_patches=normalize_patches,
+        overlap_ratio=overlap_ratio,
+        max_extra_patches=max_extra_patches,
+        seed=seed,
+    )
+
+    if visualize:
+        from visualize.viewer import SampleViewer
+
+        viewer = SampleViewer(
+            dataset,
+            inference=None,
+        )
+
+        viewer.show()
+
+    return dataset
 
 
-def create_split_dataloaders(
+def create_advanced_reconstruction_dataset(
+    base_dataset: Optional[Dataset] = None,
+    root: Optional[str] = None,
+    seed: int = 42,
+    defect_augmentation_count: int = 5,
+    local_dropout_regions: int = 5,
+    dense: bool = False,
+    dense_root: Optional[str] = None,
+    dense_num_points: int = 100_000,
+    normalize: bool = True,
+    visualize: bool = False,
+    split_into_patches: bool = False,
+    patch_size: int = 8192,
+    num_patches: Optional[int] = None,
+    normalize_patches: bool = False,
+    overlap_ratio: float = 0.5,
+    max_extra_patches: Optional[int] = None,
+) -> Dataset:
+    """
+    Build a richer reconstruction dataset with missing parts + local holes and
+    additional photogrammetry-like artifacts.
+
+    Added artifacts:
+      - OutlierPoints
+      - Noise
+            - SurfaceToPlaneBridge
+      - BelowObjectPlane
+    """
+    if base_dataset is None:
+        if not root:
+            raise ValueError("Either base_dataset or root must be provided")
+        base_dataset = ShapeNetDataset(root=root)
+
+    rng = np.random.RandomState(seed)
+    defects = [
+        Combined(
+            [
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.35)),
+                LocalDropout(
+                    radius=rng.uniform(0.01, 0.06),
+                    regions=local_dropout_regions,
+                    dropout_rate=rng.uniform(0.45, 0.9),
+                ),
+                SurfaceToPlaneBridge(
+                    num_bridges=int(rng.randint(6, 18)),
+                    points_per_bridge=int(rng.randint(8, 24)),
+                    plane_offset_ratio=rng.uniform(0.02, 0.08),
+                    axis=1,
+                    bottom_band_ratio=rng.uniform(0.2, 0.5),
+                    top_band_ratio=rng.uniform(0.15, 0.35),
+                    side_band_ratio=rng.uniform(0.15, 0.35),
+                    bottom_bridge_fraction=rng.uniform(0.1, 0.35),
+                    top_bridge_fraction=rng.uniform(0.2, 0.4),
+                    side_bridge_fraction=rng.uniform(0.35, 0.6),
+                    diagonal_strength_min=rng.uniform(0.1, 0.25),
+                    diagonal_strength_max=rng.uniform(0.4, 0.75),
+                    lateral_jitter=rng.uniform(0.0008, 0.0035),
+                    normal_jitter=rng.uniform(0.0005, 0.0025),
+                ),
+                BelowObjectPlane(
+                    num_points=int(rng.randint(500, 2200)),
+                    offset_ratio=rng.uniform(0.02, 0.08),
+                    spread_ratio=rng.uniform(1.0, 2.0),
+                    normal_jitter=rng.uniform(0.0008, 0.004),
+                    plane_jitter=rng.uniform(0.003, 0.02),
+                    axis=1,
+                    center_density_bias=rng.uniform(0.25, 0.75),
+                    edge_sparsity=rng.uniform(0.2, 0.75),
+                    boundary_irregularity=rng.uniform(0.2, 0.7),
+                ),
+                OutlierPoints(
+                    num_points=int(rng.randint(30, 240)),
+                    scale_factor=rng.uniform(1.2, 2.0),
+                    mode="uniform",
+                ),
+                Noise(sigma=rng.uniform(0.001, 0.01)),
+            ]
+        )
+        for _ in range(defect_augmentation_count)
+    ]
+
+    dataset = _prepare_dataset_pipeline(
+        base_dataset=base_dataset,
+        defects=defects,
+        dense=dense,
+        dense_root=dense_root,
+        dense_num_points=dense_num_points,
+        normalize=normalize,
+        split_into_patches=split_into_patches,
+        patch_size=patch_size,
+        num_patches=num_patches,
+        normalize_patches=normalize_patches,
+        overlap_ratio=overlap_ratio,
+        max_extra_patches=max_extra_patches,
+        seed=seed,
+    )
+
+    if visualize:
+        from visualize.viewer import SampleViewer
+
+        viewer = SampleViewer(
+            dataset,
+            inference=None,
+        )
+
+        viewer.show()
+
+    return dataset
+
+
+def create_train_val_test_dataloaders(
     dataset: Dataset,
     batch_size: int,
     train_ratio: float = 0.8,

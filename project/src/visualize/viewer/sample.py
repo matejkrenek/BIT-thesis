@@ -82,14 +82,14 @@ class SampleViewer(BaseViewer):
         ps.register_point_cloud(
             "original",
             self.sample.original_pos,
-            radius=0.0025,
+            radius=0.00035,
             color=(0.0, 1.0, 0.0),
             point_render_mode="quad",
         )
         ps.register_point_cloud(
             "defected",
             self.sample.defected_pos,
-            radius=0.0025,
+            radius=0.00035,
             color=(1.0, 0.0, 0.0),
             point_render_mode="quad",
         )
@@ -100,7 +100,7 @@ class SampleViewer(BaseViewer):
             ps.register_point_cloud(
                 "inferred",
                 inferred_pc,
-                radius=0.0025,
+                radius=0.00035,
                 color=(0.0, 0.0, 1.0),
                 point_render_mode="quad",
             )

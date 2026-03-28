@@ -35,6 +35,7 @@ from dataset.defect import (
     FloatingCluster,
     HairLikeNoise,
     SurfaceBridgingArtifact,
+    SurfaceToPlaneBridge,
     SurfaceFlattening,
 )
 from models import PointCleanNetDenoiser
@@ -80,7 +81,6 @@ class PointCleanNetConfig:
     use_feat_stn = True
 
 
-
 # ============================================================================
 # DATASET AND DATALOADERS
 # ============================================================================
@@ -118,6 +118,15 @@ def create_dataset(defect_augmentation_count: int = 2):
                         resolution_v=int(rng.randint(4, 9)),
                         width=rng.uniform(0.008, 0.03),
                         jitter=rng.uniform(0.001, 0.006),
+                    ),
+                    SurfaceToPlaneBridge(
+                        num_bridges=int(rng.randint(6, 16)),
+                        points_per_bridge=int(rng.randint(10, 22)),
+                        plane_offset_ratio=rng.uniform(0.02, 0.08),
+                        axis=1,
+                        bottom_band_ratio=rng.uniform(0.25, 0.55),
+                        lateral_jitter=rng.uniform(0.0008, 0.003),
+                        normal_jitter=rng.uniform(0.0005, 0.0025),
                     ),
                 ]
             )
@@ -242,7 +251,6 @@ def load_checkpoint(
     return checkpoint["epoch"] + 1, checkpoint["val_loss"]
 
 
-
 # ============================================================================
 # MAIN TRAINING LOOP
 # ============================================================================
@@ -274,7 +282,6 @@ def main():
         plot_pointcloud_to_image(originals[0], "pcd_original_0.png")
         plot_pointcloud_to_image(defecteds[0], "pcd_defected_0.png")
         plot_pointcloud_to_image(pred[0], "pcd_completed_0.png")
-
 
         break
 

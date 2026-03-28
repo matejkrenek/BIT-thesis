@@ -7,7 +7,9 @@ from dataset.wrapper import (
     DenseWrapperDataset,
     NormalizeWrapperDataset,
     PatchWrapperDataset,
+    AugmentWrapperDataset,
 )
+from dataset.defect import LargeMissingRegion, Rotate, Noise, LocalDropout, Combined
 
 load_dotenv()
 
@@ -22,22 +24,28 @@ dense_dataset = DenseWrapperDataset(
     num_points=100_000,
 )
 normalized_dataset = NormalizeWrapperDataset(dense_dataset)
+defects = [
+    Combined(
+        [
+            LargeMissingRegion(removal_fraction=0.3),
+            LocalDropout(
+                radius=0.1,
+                regions=5,
+                dropout_rate=0.5,
+            ),
+        ]
+    )
+    for _ in range(5)
+]
 
-# Create patch datasets
-patch_dataset_single = PatchWrapperDataset(
-    normalized_dataset,
-    patch_size=1024,
-    num_patches=1,
-    sampling_strategy="random",
-    seed=42,
-)
+
+augmented_base_dataset = AugmentWrapperDataset(normalized_dataset, defects)
 
 patch_dataset_multi = PatchWrapperDataset(
-    normalized_dataset,
-    patch_size=1024,
-    num_patches=4,
-    sampling_strategy="fps",
-    seed=42,
+    dataset=augmented_base_dataset,
+    patch_size=8192 * 4,
+    num_patches=8,
+    overlap_ratio=0,
 )
 
 # Initialize polyscope
@@ -60,35 +68,25 @@ ps.register_point_cloud(
 )
 print(f"Full cloud:  {full_sample.pos.shape}")
 
-# Visualize single patch
-print("\n--- Single Random Patch ---")
-single_patch = patch_dataset_single[idx]
-ps.register_point_cloud(
-    "Single Patch (random)",
-    single_patch.pos.numpy(),
-    color=(0.2, 0.6, 0.9),  # Blue
-    enabled=True,
-)
-print(f"Patch shape: {single_patch.pos.shape}")
-
 # Visualize multiple patches
-print("\n--- Multiple FPS Patches ---")
+print("\n--- Multiple FPS+KNN Patches ---")
 multi_patches = patch_dataset_multi[idx]
-patches_np = multi_patches.pos.numpy()  # [4, 1024, 3]
+patches_defected_np = multi_patches.defected_pos.numpy()  # [num_patches, patch_size, 3]
+patches_original_np = multi_patches.original_pos.numpy()  # [num_patches, patch_size, 3]
 
-colors = [
-    (0.9, 0.2, 0.2),  # Red
-    (0.2, 0.9, 0.2),  # Green
-    (0.9, 0.9, 0.2),  # Yellow
-    (0.9, 0.2, 0.9),  # Magenta
-]
-
-for i, patch in enumerate(patches_np):
+for i, patch in enumerate(patches_defected_np):
     ps.register_point_cloud(
-        f"Patch {i+1} (fps)",
+        f"Patch {i+1} (fps+knn)",
         patch,
-        color=colors[i],
-        enabled=True,
+        enabled=False,
+    )
+    print(f"Patch {i+1}: {patch.shape}")
+
+for i, patch in enumerate(patches_original_np):
+    ps.register_point_cloud(
+        f"Patch {i+1} (fps+knn2)",
+        patch,
+        enabled=False,
     )
     print(f"Patch {i+1}: {patch.shape}")
 
@@ -97,11 +95,12 @@ print("\n" + "=" * 60)
 print("STATISTICS")
 print("=" * 60)
 print(f"Full cloud points:    {full_sample.pos.shape[0]}")
-print(f"Single patch points:  {single_patch.pos.shape[0]}")
 print(f"Multi patches:        {multi_patches.num_patches}")
 print(f"Points per patch:     {multi_patches.patch_size}")
+print(f"Overlap ratio:        {multi_patches.overlap_ratio:.2f}")
+print(f"Coverage ratio:       {multi_patches.coverage_ratio * 100:.2f}%")
 print(
-    f"Coverage:             {(multi_patches.num_patches * multi_patches.patch_size / full_sample.pos.shape[0] * 100):.1f}%"
+    f"Sampling ratio:       {(multi_patches.num_patches * multi_patches.patch_size / full_sample.pos.shape[0] * 100):.1f}%"
 )
 print("=" * 60 + "\n")
 
