@@ -5,7 +5,12 @@ from typing import List, Tuple
 import numpy as np
 from dotenv import load_dotenv
 
-from dataset import CO3DDataset, ModelNetDataset, PhotogrammetricDataset, ShapeNetDataset
+from dataset import (
+    CO3DDataset,
+    ModelNetDataset,
+    PhotogrammetricDataset,
+    ShapeNetDataset,
+)
 from visualize.dataset_gallery import (
     GalleryConfig,
     _to_numpy_points,
@@ -13,6 +18,7 @@ from visualize.dataset_gallery import (
 )
 from dataset import AugmentedDataset
 from dataset.defect import LargeMissingRegion, LocalDropout, Noise, Combined
+
 
 def _parse_csv(value: str) -> List[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
@@ -71,7 +77,7 @@ def _build_dataset(args):
             ],
             detailed=True,
         )
-    
+
     if args.dataset == "modelnet":
         categories = _parse_csv(args.categories) if args.categories else None
         base = ModelNetDataset(
@@ -116,7 +122,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Create bit-thesis ready image gallery of dataset point-cloud samples.",
     )
-    parser.add_argument("--dataset", required=True, choices=["shapenet", "modelnet", "photogrammetric"])
+    parser.add_argument(
+        "--dataset", required=True, choices=["shapenet", "modelnet", "photogrammetric"]
+    )
     parser.add_argument("--num-samples", type=int, default=6)
     parser.add_argument(
         "--sample-indices",
@@ -127,18 +135,38 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=str, default="dataset_gallery.png")
     parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--categories", type=str, default=None, help="Comma separated categories for dataset")
+    parser.add_argument(
+        "--categories",
+        type=str,
+        default=None,
+        help="Comma separated categories for dataset",
+    )
 
-    parser.add_argument("--views", type=str, default="30,45;30,135", help="Semicolon-separated list of elev,azim pairs for views")
+    parser.add_argument(
+        "--views",
+        type=str,
+        default="30,45;30,135",
+        help="Semicolon-separated list of elev,azim pairs for views",
+    )
     parser.add_argument("--point-size", type=float, default=1.5)
     parser.add_argument("--max-points", type=int, default=8192)
-    parser.add_argument("--zoom", type=float, default=1.0, help="Camera zoom factor (>1 zooms in, <1 zooms out)")
+    parser.add_argument(
+        "--zoom",
+        type=float,
+        default=1.0,
+        help="Camera zoom factor (>1 zooms in, <1 zooms out)",
+    )
     parser.add_argument("--dpi", type=int, default=300)
 
     parser.add_argument("--co3d-categories", type=str, default="cup,bench,car")
     parser.add_argument("--samples-per-category", type=int, default=10)
     parser.add_argument("--frames-per-sample", type=int, default=10)
-    parser.add_argument("--frames-strategy", type=str, default="uniform", choices=["uniform", "keyframe", "random"])
+    parser.add_argument(
+        "--frames-strategy",
+        type=str,
+        default="uniform",
+        choices=["uniform", "keyframe", "random"],
+    )
     parser.add_argument(
         "--cloud-labels",
         type=str,
@@ -146,15 +174,35 @@ def main():
         help="Comma-separated row labels for clouds in one sample (e.g. Original,Defected or Original,Defected,PCN,PoinTr)",
     )
 
-    parser.add_argument("--max-sample-cols", type=int, default=3, help="Max number of columns per sample (for multi-cloud samples like Original+Defected)")
-    parser.add_argument("--image-grid-cols", type=int, default=0, help="Columns for image/mask rows; 0 = auto-wrap")
-    parser.add_argument("--image-grid-max-images", type=int, default=0, help="Maximum images shown in image/mask rows; 0 = all")
-    parser.add_argument("--image-row-height", type=float, default=2, help="Relative height of image/mask rows inside a sample card")
+    parser.add_argument(
+        "--max-sample-cols",
+        type=int,
+        default=3,
+        help="Max number of columns per sample (for multi-cloud samples like Original+Defected)",
+    )
+    parser.add_argument(
+        "--image-grid-cols",
+        type=int,
+        default=0,
+        help="Columns for image/mask rows; 0 = auto-wrap",
+    )
+    parser.add_argument(
+        "--image-grid-max-images",
+        type=int,
+        default=0,
+        help="Maximum images shown in image/mask rows; 0 = all",
+    )
+    parser.add_argument(
+        "--image-row-height",
+        type=float,
+        default=2,
+        help="Relative height of image/mask rows inside a sample card",
+    )
 
     args = parser.parse_args()
 
-    data_folder_path = os.getenv("DATA_FOLDER_PATH", "")
-    args.data_root = args.data_root or os.path.join(data_folder_path, "data")
+    ROOT_DIR = os.getenv("ROOT_DIR", "")
+    args.data_root = args.data_root or os.path.join(ROOT_DIR, "data")
 
     dataset = _build_dataset(args)
     dataset_type = args.dataset
@@ -180,7 +228,9 @@ def main():
     else:
         rng = np.random.default_rng(args.seed)
         k = min(args.num_samples, len(dataset))
-        chosen_indices = sorted(rng.choice(len(dataset), size=k, replace=False).tolist())
+        chosen_indices = sorted(
+            rng.choice(len(dataset), size=k, replace=False).tolist()
+        )
 
     pointclouds = []
     descriptions = []
@@ -189,7 +239,7 @@ def main():
 
     custom_labels = _parse_labels(args.cloud_labels) if args.cloud_labels else None
 
-    if(dataset_type == "photogrammetric"):
+    if dataset_type == "photogrammetric":
         for idx in chosen_indices:
             try:
                 sample = dataset[idx]
@@ -230,7 +280,7 @@ def main():
                 kept_indices.append(idx)
             except Exception as exc:
                 print(f"[WARN] Skipping sample {idx}: {exc}")
-    elif(dataset_type in ["shapenet", "modelnet"]):
+    elif dataset_type in ["shapenet", "modelnet"]:
         for idx in chosen_indices:
             try:
                 original, defected, log = dataset[idx]
@@ -238,7 +288,9 @@ def main():
                 defected = _to_numpy_points(defected)
                 pointclouds.append([original, defected])
                 descriptions.append("")
-                badge_labels.append(custom_labels if custom_labels else ["Original", "Defected"])
+                badge_labels.append(
+                    custom_labels if custom_labels else ["Original", "Defected"]
+                )
                 kept_indices.append(idx)
             except Exception as exc:
                 print(f"[WARN] Skipping sample {idx}: {exc}")
@@ -277,7 +329,9 @@ def main():
         if args.sample_indices
         else f"random samples requested: {args.num_samples}"
     )
-    print(f"[INFO] Dataset: {args.dataset} | {requested_info} | samples rendered: {len(pointclouds)}")
+    print(
+        f"[INFO] Dataset: {args.dataset} | {requested_info} | samples rendered: {len(pointclouds)}"
+    )
     print(f"[INFO] Indices: {kept_indices}")
 
 

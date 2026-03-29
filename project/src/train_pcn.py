@@ -24,9 +24,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 NUM_GPUS = torch.cuda.device_count()
 print(f"[INFO] Available GPUs: {NUM_GPUS}")
 
-DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
-ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
-CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
+ROOT_DIR = os.getenv("ROOT_DIR", "")
+ROOT_DATA = ROOT_DIR + "/data/ShapeNetV2"
+CHECKPOINT_DIR = ROOT_DIR + "/checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 BATCH_SIZE = 128

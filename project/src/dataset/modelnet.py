@@ -10,7 +10,7 @@ from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
 
 from dataset.downloader import KaggleDownloader
-from logger import logger
+from core import logger
 
 """
 ModelNet Dataset for 3D Point Cloud Classification.

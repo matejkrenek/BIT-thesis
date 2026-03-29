@@ -11,7 +11,7 @@ import torch_geometric.transforms as T
 from torchvision.io import read_image
 
 from dataset.downloader import ZipUrlDownloader
-from logger import logger
+from core import logger
 from pathlib import Path
 import shutil
 
@@ -230,7 +230,14 @@ class CO3DDataset(InMemoryDataset):
 
             samples = np.random.choice(
                 os.listdir(category_dir),
-                size=len(samples) if (self.samples_per_category < 0 or self.samples_per_category > len(samples)) else self.samples_per_category,
+                size=(
+                    len(samples)
+                    if (
+                        self.samples_per_category < 0
+                        or self.samples_per_category > len(samples)
+                    )
+                    else self.samples_per_category
+                ),
                 replace=False,
             )
 

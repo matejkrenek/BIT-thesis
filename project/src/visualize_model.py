@@ -27,6 +27,7 @@ class ModelSpec:
 
 SUPPORTED_METRICS = ("chamfer", "hausdorff", "fscore")
 
+
 def _parse_csv(value: Optional[str]) -> Optional[List[str]]:
     if not value:
         return None
@@ -117,18 +118,22 @@ def _load_state_dict(model: torch.nn.Module, checkpoint_path: str, device: str) 
     if missing:
         print(f"[WARN] Missing keys for model load ({len(missing)}): {missing[:5]}")
     if unexpected:
-        print(f"[WARN] Unexpected keys for model load ({len(unexpected)}): {unexpected[:5]}")
+        print(
+            f"[WARN] Unexpected keys for model load ({len(unexpected)}): {unexpected[:5]}"
+        )
 
 
 def _build_model(spec: ModelSpec, device: str) -> torch.nn.Module:
     if spec.model_type == "pcn":
         model = PCN(num_dense=16384, latent_dim=1024, grid_size=4)
     elif spec.model_type == "pointr":
+
         class PoinTrConfig:
             trans_dim = 384
             knn_layer = 1
             num_pred = 16384
             num_query = 224
+
         model = PoinTr(config=PoinTrConfig())
     else:
         raise ValueError(f"Unsupported model type: {spec.model_type}")
@@ -139,7 +144,12 @@ def _build_model(spec: ModelSpec, device: str) -> torch.nn.Module:
     return model
 
 
-def _predict(model: torch.nn.Module, model_type: str, defected_batched: torch.Tensor, target_points: int) -> torch.Tensor:
+def _predict(
+    model: torch.nn.Module,
+    model_type: str,
+    defected_batched: torch.Tensor,
+    target_points: int,
+) -> torch.Tensor:
     with torch.no_grad():
         if model_type == "pcn":
             _, pred = model(defected_batched)
@@ -252,8 +262,9 @@ def _build_dataset_loader(args: argparse.Namespace) -> Tuple[Dataset, DataLoader
     train_size = int(0.8 * len(dataset))
     val_size = int(0.1 * len(dataset))
     test_size = len(dataset) - train_size - val_size
-    train_ds, val_ds, test_ds = random_split(dataset, [train_size, val_size, test_size], generator=g)
-
+    train_ds, val_ds, test_ds = random_split(
+        dataset, [train_size, val_size, test_size], generator=g
+    )
 
     train_loader = DataLoader(
         train_ds,
@@ -296,11 +307,17 @@ def _format_metric_short(name: str, value: float) -> str:
     return f"{name}={value:.5f}"
 
 
-def _metrics_to_lines(metric_values: Dict[str, float], metrics: Sequence[str]) -> List[str]:
-    return [_format_metric_short(m, metric_values[m]) for m in metrics if m in metric_values]
+def _metrics_to_lines(
+    metric_values: Dict[str, float], metrics: Sequence[str]
+) -> List[str]:
+    return [
+        _format_metric_short(m, metric_values[m]) for m in metrics if m in metric_values
+    ]
 
 
-def _compute_aggregate_table(records: List[Dict[str, object]], metrics: Sequence[str]) -> List[Dict[str, object]]:
+def _compute_aggregate_table(
+    records: List[Dict[str, object]], metrics: Sequence[str]
+) -> List[Dict[str, object]]:
     by_model: Dict[str, Dict[str, List[float]]] = {}
     for rec in records:
         model_name = str(rec["model"])
@@ -332,7 +349,9 @@ def _compute_aggregate_table(records: List[Dict[str, object]], metrics: Sequence
     return rows
 
 
-def _save_per_sample_csv(path: str, records: List[Dict[str, object]], metrics: Sequence[str]) -> None:
+def _save_per_sample_csv(
+    path: str, records: List[Dict[str, object]], metrics: Sequence[str]
+) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     header = ["sample_index", "model"] + list(metrics)
 
@@ -371,7 +390,9 @@ def _print_aggregate_table(rows: List[Dict[str, object]]) -> None:
         return
 
     print("\n===== AGGREGATED METRICS (WHOLE DATASET) =====")
-    print(f"{'Model':20s} {'Metric':10s} {'Mean':>12s} {'Median':>12s} {'Std':>12s} {'N':>8s}")
+    print(
+        f"{'Model':20s} {'Metric':10s} {'Mean':>12s} {'Median':>12s} {'Std':>12s} {'N':>8s}"
+    )
     for row in rows:
         print(
             f"{str(row['model']):20.20s} {str(row['metric']):10.10s} "
@@ -388,7 +409,9 @@ def main() -> None:
 
     parser.add_argument("--dataset", required=True, choices=["shapenet", "modelnet"])
     parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--categories", type=str, default=None, help="Comma-separated categories")
+    parser.add_argument(
+        "--categories", type=str, default=None, help="Comma-separated categories"
+    )
 
     parser.add_argument(
         "--model-spec",
@@ -419,8 +442,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    data_folder_path = os.getenv("DATA_FOLDER_PATH", "")
-    args.data_root = args.data_root or os.path.join(data_folder_path, "data")
+    ROOT_DIR = os.getenv("ROOT_DIR", "")
+    args.data_root = args.data_root or os.path.join(ROOT_DIR, "data")
 
     metrics = _parse_metrics(args.metrics)
     model_specs = _parse_model_specs(args.model_spec)
@@ -444,7 +467,9 @@ def main() -> None:
     else:
         rng = np.random.default_rng(args.seed)
         k = min(args.num_samples, len(dataset))
-        chosen_indices = sorted(rng.choice(len(dataset), size=k, replace=False).tolist())
+        chosen_indices = sorted(
+            rng.choice(len(dataset), size=k, replace=False).tolist()
+        )
 
     selected_set = set(chosen_indices)
 
@@ -453,7 +478,9 @@ def main() -> None:
 
     model_entries: List[Tuple[ModelSpec, torch.nn.Module]] = []
     for spec in model_specs:
-        print(f"[INFO] Loading model '{spec.name}' ({spec.model_type}) from {spec.checkpoint}")
+        print(
+            f"[INFO] Loading model '{spec.name}' ({spec.model_type}) from {spec.checkpoint}"
+        )
         model_entries.append((spec, _build_model(spec, device)))
 
     per_sample_records: List[Dict[str, object]] = []
@@ -495,7 +522,9 @@ def main() -> None:
         model_metric_batches: Dict[str, Dict[str, torch.Tensor]] = {}
         model_pred_batches: Dict[str, torch.Tensor] = {}
         for spec, model in model_entries:
-            pred = _predict(model, spec.model_type, defected_for_model, target_points=target_points)
+            pred = _predict(
+                model, spec.model_type, defected_for_model, target_points=target_points
+            )
             model_pred_batches[spec.name] = pred.detach().cpu()
             model_metric_batches[spec.name] = _compute_metric_values_batch(
                 pred,
@@ -506,7 +535,9 @@ def main() -> None:
 
         for i, sample_idx in enumerate(batch_indices_cpu):
             defected_metric_values = {
-                m: float(defected_metric_batch[m][i].item()) for m in metrics if m in defected_metric_batch
+                m: float(defected_metric_batch[m][i].item())
+                for m in metrics
+                if m in defected_metric_batch
             }
 
             per_sample_records.append(
@@ -563,7 +594,9 @@ def main() -> None:
     for idx in chosen_indices:
         payload = selected_payload.get(idx)
         if payload is None:
-            print(f"[WARN] Sample {idx} was selected for gallery but not available after evaluation")
+            print(
+                f"[WARN] Sample {idx} was selected for gallery but not available after evaluation"
+            )
             continue
 
         rows = [payload["original"], payload["defected"]]
@@ -573,7 +606,6 @@ def main() -> None:
         defected_lines = [f"N={rows[1].shape[0]}"]
         defected_lines.extend(_metrics_to_lines(payload["defected_metrics"], metrics))
         details.append("\n".join(defected_lines))
-
 
         for spec in model_specs:
             pred = payload["predictions"][spec.name]

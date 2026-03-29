@@ -1,5 +1,5 @@
 from .base import BaseDownloader
-from logger import logger
+from core import logger
 import zipfile
 import requests
 import os

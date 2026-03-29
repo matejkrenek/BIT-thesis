@@ -1,6 +1,6 @@
 from .base import BaseDownloader
 from huggingface_hub import list_repo_files, hf_hub_download
-from logger import logger
+from core import logger
 import zipfile
 import os
 

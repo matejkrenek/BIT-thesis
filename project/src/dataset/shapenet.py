@@ -10,7 +10,7 @@ from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
 
 from dataset.downloader.huggingface import HuggingFaceDownloader
-from logger import logger
+from core import logger
 
 
 class ShapeNetDataset(InMemoryDataset):
@@ -126,9 +126,9 @@ class ShapeNetDataset(InMemoryDataset):
         return [f for f in os.listdir(self.processed_dir) if f.endswith(".pt")]
 
     def download(self):
-        token = os.getenv("HUGGINGFACE_TOKEN")
+        token = os.getenv("HF_TOKEN")
         if not token:
-            logger.warning("HUGGINGFACE_TOKEN not set; download may fail.")
+            logger.warning("HF_TOKEN not set; download may fail.")
 
         downloader = HuggingFaceDownloader(
             local_dir=self.raw_dir,

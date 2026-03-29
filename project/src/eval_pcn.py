@@ -26,9 +26,9 @@ NUM_GPUS = torch.cuda.device_count()
 print(f"[INFO] Available GPUs: {NUM_GPUS}")
 
 BATCH_SIZE = 128
-DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
-ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
-CHECKPOINT_DIR = DATA_FOLDER_PATH + "/checkpoints"
+ROOT_DIR = os.getenv("ROOT_DIR", "")
+ROOT_DATA = ROOT_DIR + "/data/ShapeNetV2"
+CHECKPOINT_DIR = ROOT_DIR + "/checkpoints"
 CHECKPOINT = CHECKPOINT_DIR + "/pcn_v69_best.pt"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 THRESHOLD = 0.005
@@ -57,6 +57,7 @@ dataset = AugmentedDataset(
     ],
 )
 
+
 def pcn_collate(batch):
     batch = [b for b in batch if b is not None]
     if len(batch) == 0:
@@ -75,10 +76,13 @@ def pcn_collate(batch):
 
     return originals, padded, lengths
 
+
 train_size = int(0.8 * len(dataset))
 val_size = int(0.1 * len(dataset))
 test_size = len(dataset) - train_size - val_size
-train_ds, val_ds, test_ds = random_split(dataset, [train_size, val_size, test_size], generator=g)
+train_ds, val_ds, test_ds = random_split(
+    dataset, [train_size, val_size, test_size], generator=g
+)
 
 train_loader = DataLoader(
     train_ds,
@@ -143,10 +147,10 @@ with torch.no_grad():
         hd = hausdorff_distance_metric(pred, originals).item()
         f1 = fscore_metric(pred, originals, THRESHOLD).item()
 
-        plot_pointcloud_to_image(defected[0], "sample_defected_" + str(index) +  ".png")
+        plot_pointcloud_to_image(defected[0], "sample_defected_" + str(index) + ".png")
         plot_pointcloud_to_image(pred[0], "sample_predicted_" + str(index) + ".png")
         plot_pointcloud_to_image(originals[0], "sample_original_" + str(index) + ".png")
-        
+
         results.append([cd, hd, f1])
         break
 
@@ -156,10 +160,7 @@ import pandas as pd
 # Save results
 # -----------------------
 
-df = pd.DataFrame(
-    results,
-    columns=["Chamfer", "Hausdorff", "F-score"]
-)
+df = pd.DataFrame(results, columns=["Chamfer", "Hausdorff", "F-score"])
 
 df.to_csv("evaluation_results.csv", index=False)
 
@@ -170,18 +171,21 @@ print(df.describe())
 # Visualizations
 # -----------------------
 
-plt.figure(figsize=(8,6))
+plt.figure(figsize=(8, 6))
 plt.hist(df["Chamfer"], bins=30)
 plt.title("Chamfer Distance Distribution")
 plt.savefig("cd_histogram.png")
 plt.close()
 
-plt.figure(figsize=(8,6))
-plt.boxplot([
-    df["Chamfer"],
-    df["Hausdorff"],
-    df["F-score"],
-], tick_labels=["CD", "Hausdorff", "F-score"])
+plt.figure(figsize=(8, 6))
+plt.boxplot(
+    [
+        df["Chamfer"],
+        df["Hausdorff"],
+        df["F-score"],
+    ],
+    tick_labels=["CD", "Hausdorff", "F-score"],
+)
 plt.title("Metric Distribution")
 plt.savefig("metrics_boxplot.png")
 plt.close()

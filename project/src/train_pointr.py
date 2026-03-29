@@ -71,9 +71,9 @@ NUM_GPUS = torch.cuda.device_count()
 print(f"[INFO] Available GPUs: {NUM_GPUS}")
 
 # Paths
-DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
-ROOT_DATA = Path(DATA_FOLDER_PATH) / "data" / "ShapeNetV2"
-CHECKPOINT_DIR = Path(DATA_FOLDER_PATH) / "checkpoints" / "pointr"
+ROOT_DIR = os.getenv("ROOT_DIR", "")
+ROOT_DATA = Path(ROOT_DIR) / "data" / "ShapeNetV2"
+CHECKPOINT_DIR = Path(ROOT_DIR) / "checkpoints" / "pointr"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Training hyperparameters
@@ -98,6 +98,7 @@ torch.manual_seed(SEED)
 g = torch.Generator()
 g.manual_seed(SEED)
 
+
 # PoinTr specific configuration
 class PoinTrConfig:
     trans_dim = 384
@@ -118,13 +119,14 @@ notifier = DiscordNotifier(
     project_name="BIT Thesis Project - PoinTr",
     project_url="https://github.com/matejkrenek/BIT-thesis",
     avatar_name="PoinTr Training Bot",
-    silent_mode=False
+    silent_mode=False,
 )
 
 
 # ============================================================================
 # DATASET AND DATA LOADING
 # ============================================================================
+
 
 def create_defects(
     rng: np.random.RandomState,
@@ -209,7 +211,6 @@ def pointr_collate(batch) -> Tuple[torch.Tensor, torch.Tensor]:
     return originals, padded, lengths
 
 
-
 def create_data_loaders(
     train_ds,
     val_ds,
@@ -229,7 +230,7 @@ def create_data_loaders(
         pin_memory=True,
         generator=g,
     )
-    
+
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
@@ -238,7 +239,7 @@ def create_data_loaders(
         num_workers=4,
         pin_memory=True,
     )
-    
+
     test_loader = DataLoader(
         test_ds,
         batch_size=batch_size,
@@ -247,7 +248,7 @@ def create_data_loaders(
         num_workers=4,
         pin_memory=True,
     )
-    
+
     return train_loader, val_loader, test_loader
 
 
@@ -255,15 +256,16 @@ def create_data_loaders(
 # MODEL SETUP
 # ============================================================================
 
+
 def create_model(config: PoinTrConfig) -> nn.Module:
     """Create PoinTr model with optional multi-GPU support."""
 
     model = PoinTr(config=config)
-    
+
     if DEVICE == "cuda" and NUM_GPUS > 1:
         print("[INFO] Using DataParallel with multiple GPUs")
         model = nn.DataParallel(model)
-    
+
     model = model.to(DEVICE)
     return model
 
@@ -271,6 +273,7 @@ def create_model(config: PoinTrConfig) -> nn.Module:
 # ============================================================================
 # TRAINING FUNCTIONS
 # ============================================================================
+
 
 def train_epoch(
     model: nn.Module,
@@ -315,10 +318,10 @@ def train_epoch(
             K=originals.shape[1],
             lengths=lengths,
         )
-        
+
         # Forward pass
         pred_coarse, pred_fine = model(defecteds)
-        
+
         # Compute loss
         if hasattr(model, "module"):
             loss = model.module.get_loss((pred_coarse, pred_fine), originals)
@@ -343,7 +346,7 @@ def train_epoch(
                     f"{lengths.float().mean().item():.2f}/{lengths.max().item()}"
                 )
             continue
-        
+
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
@@ -372,7 +375,7 @@ def train_epoch(
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        
+
         total_loss += loss.item()
         if coarse_loss_value is not None:
             total_coarse += coarse_loss_value
@@ -398,7 +401,7 @@ def validate(
     total_coarse = 0.0
     total_fine = 0.0
     num_batches = 0
-    
+
     for originals, padded, lengths in val_loader:
         if originals is None or padded is None or lengths is None:
             continue
@@ -412,10 +415,10 @@ def validate(
             K=originals.shape[1],
             lengths=lengths,
         )
-        
+
         # Forward pass
         pred_coarse, pred_fine = model(defecteds)
-        
+
         # Compute loss
         if hasattr(model, "module"):
             loss = model.module.get_loss((pred_coarse, pred_fine), originals)
@@ -424,7 +427,7 @@ def validate(
 
         coarse_loss_value = None
         fine_loss_value = None
-        
+
         # Handle tuple loss
         if isinstance(loss, tuple):
             if len(loss) >= 2:
@@ -440,14 +443,14 @@ def validate(
                     f"{lengths.float().mean().item():.2f}/{lengths.max().item()}"
                 )
             continue
-        
+
         total_loss += loss.item()
         if coarse_loss_value is not None:
             total_coarse += coarse_loss_value
         if fine_loss_value is not None:
             total_fine += fine_loss_value
         num_batches += 1
-    
+
     avg_loss = total_loss / max(num_batches, 1)
     avg_coarse = total_coarse / max(num_batches, 1)
     avg_fine = total_fine / max(num_batches, 1)
@@ -466,7 +469,9 @@ def save_checkpoint(
     checkpoint = {
         "epoch": epoch,
         "model_state": (
-            model.module.state_dict() if hasattr(model, "module") else model.state_dict()
+            model.module.state_dict()
+            if hasattr(model, "module")
+            else model.state_dict()
         ),
         "optimizer_state": optimizer.state_dict(),
         "scheduler_state": scheduler.state_dict(),
@@ -485,18 +490,18 @@ def load_checkpoint(
     """Load training checkpoint and return start epoch and best validation loss."""
     print(f"[INFO] Loading checkpoint from {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    
+
     if hasattr(model, "module"):
         model.module.load_state_dict(checkpoint["model_state"])
     else:
         model.load_state_dict(checkpoint["model_state"])
-    
+
     optimizer.load_state_dict(checkpoint["optimizer_state"])
     scheduler.load_state_dict(checkpoint["scheduler_state"])
-    
+
     start_epoch = checkpoint["epoch"] + 1
     best_val_loss = checkpoint["val_loss"]
-    
+
     return start_epoch, best_val_loss
 
 
@@ -529,17 +534,17 @@ def save_loss_plot(
 # MAIN TRAINING LOOP
 # ============================================================================
 
+
 def main():
     """Main training function."""
-    
+
     print(f"[INFO] Training on {DEVICE}")
     print(f"[INFO] Number of GPUs: {NUM_GPUS}")
-    
+
     # Create dataset and loaders
     print("[INFO] Creating dataset...")
     train_base, val_base, test_base = create_dataset_splits()
 
-    
     train_loader, val_loader, test_loader = create_data_loaders(
         train_base,
         val_base,
@@ -553,30 +558,32 @@ def main():
     print(f"[INFO] Train size: {len(train_loader.dataset)}")
     print(f"[INFO] Val size: {len(val_loader.dataset)}")
     print(f"[INFO] Test size: {len(test_loader.dataset)}")
-    
+
     # Create model
     config = PoinTrConfig()
     model = create_model(config)
-    print(f"[INFO] Model created with config: trans_dim={config.trans_dim}, "
-          f"num_pred={config.num_pred}, num_query={config.num_query}, knn_layer={config.knn_layer}")
-    
+    print(
+        f"[INFO] Model created with config: trans_dim={config.trans_dim}, "
+        f"num_pred={config.num_pred}, num_query={config.num_query}, knn_layer={config.knn_layer}"
+    )
+
     # Create optimizer and scheduler
     optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = StepLR(optimizer, step_size=50, gamma=0.5)
-    
+
     # Resume from checkpoint if specified
     start_epoch = 1
     best_val_loss = float("inf")
-    
+
     if RESUME_FROM is not None and Path(RESUME_FROM).exists():
         start_epoch, best_val_loss = load_checkpoint(
             model, optimizer, scheduler, RESUME_FROM, DEVICE
         )
-    
+
     # Initialize tracking lists
     train_losses = []
     val_losses = []
-    
+
     # Send training start notification
     if RESUME_FROM is None:
         notifier.send_training_start(
@@ -588,18 +595,18 @@ def main():
             number_of_gpus=NUM_GPUS,
             learning_rate=LEARNING_RATE,
         )
-    
+
     # Training loop
     print(f"[INFO] Starting training for {EPOCHS} epochs")
     start_time = time.time()
-    
+
     try:
         epoch_pbar = tqdm(
             range(start_epoch, EPOCHS + 1),
             desc="Training",
             unit="epoch",
         )
-        
+
         for epoch in epoch_pbar:
             # Train and validate
             train_loss, train_coarse, train_fine = train_epoch(
@@ -613,19 +620,19 @@ def main():
                     f"train(total/coarse/fine)={train_loss:.6f}/{train_coarse:.6f}/{train_fine:.6f} "
                     f"val(total/coarse/fine)={val_loss:.6f}/{val_coarse:.6f}/{val_fine:.6f}"
                 )
-            
+
             train_losses.append(train_loss)
             val_losses.append(val_loss)
-            
+
             scheduler.step()
-            
+
             # Calculate timing
             elapsed = time.time() - start_time
             epochs_done = epoch - start_epoch + 1
             epochs_left = EPOCHS - epoch
             avg_epoch_time = elapsed / epochs_done
             eta_seconds = int(avg_epoch_time * epochs_left)
-            
+
             # Update progress bar
             epoch_pbar.set_postfix(
                 train=f"{train_loss:.6f}",
@@ -633,7 +640,7 @@ def main():
                 best=f"{best_val_loss:.6f}",
                 eta=f"{eta_seconds // 60}m {eta_seconds % 60}s",
             )
-            
+
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -647,10 +654,12 @@ def main():
                     best_checkpoint_path,
                 )
                 print(f"[SAVED] Best model at epoch {epoch} with loss {val_loss:.6f}")
-            
+
             # Save periodic checkpoint
             if epoch % SAVE_EVERY == 0:
-                periodic_checkpoint_path = CHECKPOINT_DIR / f"v1_checkpoint_epoch_{epoch:04d}.pt"
+                periodic_checkpoint_path = (
+                    CHECKPOINT_DIR / f"v1_checkpoint_epoch_{epoch:04d}.pt"
+                )
                 save_checkpoint(
                     model,
                     optimizer,
@@ -659,11 +668,11 @@ def main():
                     val_loss,
                     periodic_checkpoint_path,
                 )
-            
+
             # Save loss plot
             loss_plot_path = CHECKPOINT_DIR / "v1_loss_curve.png"
             save_loss_plot(train_losses, val_losses, loss_plot_path)
-            
+
             # Send progress notification
             current_lr = scheduler.get_last_lr()[0]
             notifier.send_training_progress(
@@ -679,16 +688,18 @@ def main():
                 ),
                 loss_curve_path=str(loss_plot_path),
             )
-        
+
         # Training complete
         total_time = time.time() - start_time
-        print(f"[INFO] Training completed in {int(total_time // 3600)}h "
-              f"{int((total_time % 3600) // 60)}m {int(total_time % 60)}s")
-        
+        print(
+            f"[INFO] Training completed in {int(total_time // 3600)}h "
+            f"{int((total_time % 3600) // 60)}m {int(total_time % 60)}s"
+        )
+
         # Save final loss plot
         final_plot_path = CHECKPOINT_DIR / "v1_final_loss_curve.png"
         save_loss_plot(train_losses, val_losses, final_plot_path)
-        
+
         # Send completion notification
         notifier.send_training_completion(
             total_epochs=EPOCHS,
@@ -698,7 +709,7 @@ def main():
             final_loss_curve_path=str(final_plot_path),
             best_model_path=str(CHECKPOINT_DIR / "v1_best.pt"),
         )
-        
+
     except Exception as e:
         print(f"[ERROR] Training interrupted with error: {e}")
         notifier.send_training_error(

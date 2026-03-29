@@ -1,11 +1,9 @@
 from typing import Callable, Optional, Tuple
 
 import numpy as np
-import torch
-from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 
-from dataset import AugmentedDataset, ShapeNetDataset
+from dataset import ShapeNetDataset
 from dataset.defect import (
     BelowObjectPlane,
     Combined,
@@ -21,6 +19,9 @@ from dataset.wrapper import (
     NormalizeWrapperDataset,
     PatchWrapperDataset,
 )
+import torch
+from torch.utils.data import DataLoader, random_split
+from torch.utils.data.dataset import Dataset
 
 
 def _prepare_dataset_pipeline(
@@ -170,7 +171,7 @@ def create_advanced_reconstruction_dataset(
     Added artifacts:
       - OutlierPoints
       - Noise
-            - SurfaceToPlaneBridge
+      - SurfaceToPlaneBridge
       - BelowObjectPlane
     """
     if base_dataset is None:

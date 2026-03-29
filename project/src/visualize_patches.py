@@ -13,14 +13,14 @@ from dataset.defect import LargeMissingRegion, Rotate, Noise, LocalDropout, Comb
 
 load_dotenv()
 
-DATA_FOLDER_PATH = os.getenv("DATA_FOLDER_PATH", "")
-ROOT_DATA = DATA_FOLDER_PATH + "/data/ShapeNetV2"
+ROOT_DIR = os.getenv("ROOT_DIR", "")
+ROOT_DATA = ROOT_DIR + "/data/ShapeNetV2"
 
 # Build pipeline
 base_dataset = ShapeNetDataset(root=ROOT_DATA)
 dense_dataset = DenseWrapperDataset(
     dataset=base_dataset,
-    root=DATA_FOLDER_PATH + "/data/ShapeNetV2_dense",
+    root=ROOT_DIR + "/data/ShapeNetV2_dense",
     num_points=100_000,
 )
 normalized_dataset = NormalizeWrapperDataset(dense_dataset)
