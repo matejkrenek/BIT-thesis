@@ -1,0 +1,18 @@
+{
+  "model": "pointr",
+  "model_params": {
+    "trans_dim": 384,
+    "knn_layer": 1,
+    "num_pred": 16384,
+    "num_query": 224
+  },
+  "epochs": 10,
+  "batch_size": 32,
+  "learning_rate": 0.0003,
+  "weight_decay": 0.0001,
+  "best_val_loss": 0.0730697438120842,
+  "run_dir": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/pointr_20260330_195231",
+  "best_checkpoint": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/pointr_20260330_195231/checkpoints/best.pt",
+  "loss_curve": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/pointr_20260330_195231/loss_curve.png",
+  "duration_seconds": 306
+}

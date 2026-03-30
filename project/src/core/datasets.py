@@ -256,13 +256,70 @@ def create_advanced_reconstruction_dataset(
     return dataset
 
 
+def _collate_fn(batch):
+    def _extract_pair(item):
+        if item is None:
+            return None
+
+        if isinstance(item, dict):
+            if "original_pos" in item and "defected_pos" in item:
+                return item["original_pos"], item["defected_pos"]
+            if "pos" in item:
+                return item["pos"], item["pos"]
+
+        if hasattr(item, "original_pos") and hasattr(item, "defected_pos"):
+            return item.original_pos, item.defected_pos
+        if hasattr(item, "pos"):
+            return item.pos, item.pos
+
+        if isinstance(item, (tuple, list)) and len(item) >= 2:
+            return item[0], item[1]
+
+        raise TypeError(
+            f"Unsupported batch item type for collate: {type(item).__name__}"
+        )
+
+    pairs = []
+    for item in batch:
+        if item is None:
+            continue
+        pair = _extract_pair(item)
+        if pair is None:
+            continue
+        pairs.append(pair)
+
+    if len(pairs) == 0:
+        return None, None, None
+
+    originals_list = []
+    defecteds_list = []
+    for original, defected in pairs:
+        if not torch.is_tensor(original):
+            original = torch.as_tensor(original)
+        if not torch.is_tensor(defected):
+            defected = torch.as_tensor(defected)
+
+        originals_list.append(original.float())
+        defecteds_list.append(defected.float())
+
+    originals = torch.stack(originals_list, dim=0)
+    lengths = torch.tensor([pc.shape[0] for pc in defecteds_list], dtype=torch.long)
+    max_n = int(lengths.max().item())
+
+    padded = torch.zeros(len(defecteds_list), max_n, 3, dtype=originals.dtype)
+    for idx, pc in enumerate(defecteds_list):
+        padded[idx, : pc.shape[0]] = pc
+
+    return originals, padded, lengths
+
+
 def create_train_val_test_dataloaders(
     dataset: Dataset,
     batch_size: int,
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
-    collate_fn: Optional[Callable] = None,
+    collate_fn: Optional[Callable] = _collate_fn,
     num_workers: int = 0,
     pin_memory: bool = True,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
@@ -295,6 +352,7 @@ def create_train_val_test_dataloaders(
         "num_workers": num_workers,
         "pin_memory": pin_memory,
         "collate_fn": collate_fn,
+        "generator": torch_generator,
     }
 
     if num_workers > 0:
