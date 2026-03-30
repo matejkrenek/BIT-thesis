@@ -10,4 +10,4 @@ logs
 imgui.ini
 checkpoints
 masks
-./outputs/*
+./outputs/**/*
