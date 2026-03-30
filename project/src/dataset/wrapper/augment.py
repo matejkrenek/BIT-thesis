@@ -51,7 +51,7 @@ class AugmentWrapperDataset(Dataset):
 
         # Validate input
         if not isinstance(data, Data) or not hasattr(data, "pos"):
-            raise ValueError(f"Expected Data object with 'pos' at idx={base_idx}")
+            return None  # vadný vzorek
 
         # Input should already be normalized, so use pos directly
         pos = data.pos

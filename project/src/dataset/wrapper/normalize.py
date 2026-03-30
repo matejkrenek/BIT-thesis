@@ -19,6 +19,10 @@ class NormalizeWrapperDataset(Dataset):
     def __getitem__(self, idx):
         data = self.dataset[idx]
 
+        # Validate input
+        if not isinstance(data, Data) or not hasattr(data, "pos"):
+            return None  # vadný vzorek
+
         pos = data.pos
         if not torch.is_tensor(pos):
             pos = torch.as_tensor(pos)
