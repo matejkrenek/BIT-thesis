@@ -40,9 +40,38 @@ def _build_pointr(params: Mapping[str, Any]) -> nn.Module:
     return PoinTr(config=config)
 
 
+class _ConfigNode(dict):
+    """Dict with attribute access, recursive for nested config trees."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+
+def _to_config_node(value: Any) -> Any:
+    if isinstance(value, MappingABC):
+        return _ConfigNode({k: _to_config_node(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return [_to_config_node(v) for v in value]
+    return value
+
+
+def _build_adapointr(params: Mapping[str, Any]) -> nn.Module:
+    from models.adapointr.model import AdaPoinTr
+
+    config = _to_config_node(dict(params))
+    return AdaPoinTr(config=config)
+
+
 _MODEL_BUILDERS = {
     "pcn": _build_pcn,
     "pointr": _build_pointr,
+    "adapointr": _build_adapointr,
 }
 
 

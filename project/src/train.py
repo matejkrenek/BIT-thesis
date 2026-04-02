@@ -57,6 +57,62 @@ def _default_model_params(model_name: str) -> dict[str, Any]:
             "num_pred": 16384,
             "num_query": 224,
         }
+    if model_name == "adapointr":
+        return {
+            "num_query": 512,
+            "num_points": 16384,
+            "center_num": [512, 256],
+            "global_feature_dim": 1024,
+            "encoder_type": "graph",
+            "decoder_type": "fc",
+            "encoder_config": {
+                "embed_dim": 384,
+                "depth": 6,
+                "num_heads": 6,
+                "k": 8,
+                "n_group": 2,
+                "mlp_ratio": 2.0,
+                "block_style_list": [
+                    "attn-graph",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                ],
+                "combine_style": "concat",
+            },
+            "decoder_config": {
+                "embed_dim": 384,
+                "depth": 8,
+                "num_heads": 6,
+                "k": 8,
+                "n_group": 2,
+                "mlp_ratio": 2.0,
+                "self_attn_block_style_list": [
+                    "attn-graph",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                ],
+                "self_attn_combine_style": "concat",
+                "cross_attn_block_style_list": [
+                    "attn-graph",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                ],
+                "cross_attn_combine_style": "concat",
+            },
+        }
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -64,6 +120,8 @@ def _default_learning_rate(model_name: str) -> float:
     if model_name == "pcn":
         return 1e-3
     if model_name == "pointr":
+        return 3e-4
+    if model_name == "adapointr":
         return 3e-4
     raise ValueError(f"Unsupported model '{model_name}'")
 
@@ -73,7 +131,16 @@ def _default_weight_decay(model_name: str) -> float:
         return 0.0
     if model_name == "pointr":
         return 1e-4
+    if model_name == "adapointr":
+        return 1e-4
     raise ValueError(f"Unsupported model '{model_name}'")
+
+
+def _cap_batch_size_for_model(model_name: str, batch_size: int, overfit: bool) -> int:
+    if model_name == "adapointr":
+        # AdaPoinTr decoder-attention is memory heavy on 8GB GPUs.
+        return min(batch_size, 2 if overfit else 4)
+    return batch_size
 
 
 def _extract_cli_value(argv: list[str], option: str) -> str | None:
@@ -146,6 +213,23 @@ def _compute_loss(
             pieces = [item for item in loss_value if torch.is_tensor(item)]
             if not pieces:
                 raise ValueError("PoinTr loss tuple did not contain tensor items")
+            total = sum(pieces)
+            metrics = {
+                "total": float(total.detach().item()),
+                "coarse": float(pieces[0].detach().item()),
+                "fine": float(pieces[1].detach().item()) if len(pieces) > 1 else 0.0,
+            }
+            return total, metrics
+
+        total = loss_value
+        return total, {"total": float(total.detach().item())}
+
+    if model_name == "adapointr":
+        loss_value = core_model.get_loss(prediction, target)
+        if isinstance(loss_value, (tuple, list)):
+            pieces = [item for item in loss_value if torch.is_tensor(item)]
+            if not pieces:
+                raise ValueError("AdaPoinTr loss tuple did not contain tensor items")
             total = sum(pieces)
             metrics = {
                 "total": float(total.detach().item()),
@@ -539,10 +623,16 @@ def main() -> None:
     )
 
     effective_batch_size = int(args.batch_size)
+    effective_batch_size = _cap_batch_size_for_model(
+        model_name, effective_batch_size, bool(args.overfit)
+    )
     if args.overfit:
         overfit_count = min(max(1, int(args.overfit_samples)), len(dataset))
         dataset = Subset(dataset, list(range(overfit_count)))
         effective_batch_size = max(1, effective_batch_size // 2)
+        effective_batch_size = _cap_batch_size_for_model(
+            model_name, effective_batch_size, True
+        )
         logger.warning(
             f"Overfit mode enabled: using {overfit_count} samples, "
             f"batch_size={effective_batch_size}"
