@@ -645,8 +645,6 @@ def main() -> None:
 
     _, _, test_loader = create_train_val_test_dataloaders(
         dataset,
-        train_ratio=0.99,
-        val_ratio=0.009,
         batch_size=args.batch_size,
         seed=args.seed,
         num_workers=args.num_workers,
