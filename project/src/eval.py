@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
-from pytorch3d.ops import sample_farthest_points
+from pytorch3d.ops import knn_points, sample_farthest_points
 from tqdm import tqdm
 
 from core import (
@@ -287,6 +287,135 @@ def _compute_aggregate_table(
     return rows
 
 
+def _metric_columns(
+    records: List[Dict[str, object]], base_metrics: Sequence[str]
+) -> List[str]:
+    extra: List[str] = []
+    seen = set(base_metrics)
+    for rec in records:
+        metric_values = rec["metrics"]
+        for key in metric_values.keys():
+            if key in seen:
+                continue
+            seen.add(key)
+            extra.append(str(key))
+
+    return list(base_metrics) + sorted(extra)
+
+
+def _build_segment_reference(
+    original: torch.Tensor,
+    defected: torch.Tensor,
+    segment_threshold: float,
+) -> Dict[str, torch.Tensor]:
+    d2 = (
+        knn_points(original.unsqueeze(0), defected.unsqueeze(0), K=1)
+        .dists.squeeze(0)
+        .squeeze(-1)
+    )
+    d = torch.sqrt(d2)
+
+    repaired_target_mask = d > segment_threshold
+    if repaired_target_mask.sum() == 0:
+        repaired_target_mask[torch.argmax(d)] = True
+
+    original_preserved_mask = ~repaired_target_mask
+    if original_preserved_mask.sum() == 0:
+        original_preserved_mask[torch.argmin(d)] = True
+        repaired_target_mask = ~original_preserved_mask
+
+    return {
+        "repaired_target_mask": repaired_target_mask,
+        "original_preserved_mask": original_preserved_mask,
+        "repaired_target": original[repaired_target_mask],
+        "original_preserved": original[original_preserved_mask],
+    }
+
+
+def _split_current_by_reference(
+    current: torch.Tensor,
+    original: torch.Tensor,
+    repaired_target_mask: torch.Tensor,
+) -> Dict[str, torch.Tensor]:
+    nn_idx = (
+        knn_points(current.unsqueeze(0), original.unsqueeze(0), K=1)
+        .idx.squeeze(0)
+        .squeeze(-1)
+        .long()
+    )
+    hits_repaired = repaired_target_mask[nn_idx]
+
+    return {
+        "current_repaired": current[hits_repaired],
+        "current_preserved": current[~hits_repaired],
+    }
+
+
+def _pair_metric(
+    source: torch.Tensor,
+    target: torch.Tensor,
+    metric_name: str,
+    density_alpha: float,
+) -> float:
+    if source.numel() == 0 or target.numel() == 0:
+        return float("nan")
+
+    if metric_name == "chamfer":
+        return float(chamfer_distance_metric(source, target).item())
+    if metric_name == "hausdorff":
+        return float(hausdorff_distance_metric(source, target).item())
+    if metric_name == "dcd":
+        return float(
+            density_aware_chamfer_distance_metric(
+                source,
+                target,
+                alpha=density_alpha,
+            ).item()
+        )
+
+    raise ValueError(f"Unsupported metric: {metric_name}")
+
+
+def _compute_segmented_metrics(
+    original: torch.Tensor,
+    current: torch.Tensor,
+    reference: Dict[str, torch.Tensor],
+    current_split: Dict[str, torch.Tensor],
+    metrics: Sequence[str],
+    density_alpha: float,
+) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+
+    for metric_name in metrics:
+        out[f"repaired_target_vs_current_repaired_{metric_name}"] = _pair_metric(
+            reference["repaired_target"],
+            current_split["current_repaired"],
+            metric_name=metric_name,
+            density_alpha=density_alpha,
+        )
+        out[f"original_preserved_vs_current_preserved_{metric_name}"] = _pair_metric(
+            reference["original_preserved"],
+            current_split["current_preserved"],
+            metric_name=metric_name,
+            density_alpha=density_alpha,
+        )
+
+    return out
+
+
+def _segmented_metric_lines(
+    metric_values: Dict[str, float],
+    prefix: str,
+    metrics: Sequence[str],
+) -> List[str]:
+    lines: List[str] = []
+    for metric_name in metrics:
+        key = f"{prefix}_{metric_name}"
+        if key in metric_values:
+            lines.append(_format_metric_short(metric_name, float(metric_values[key])))
+    return lines
+
+
 def _save_per_sample_csv(
     path: Path, records: List[Dict[str, object]], metrics: Sequence[str]
 ) -> None:
@@ -420,6 +549,7 @@ def _build_arg_schema() -> List[ArgSpec]:
         ),
         ArgSpec(("--metrics",), {"type": str, "default": "chamfer,hausdorff,dcd"}),
         ArgSpec(("--density-alpha",), {"type": float, "default": 1000.0}),
+        ArgSpec(("--segment-threshold",), {"type": float, "default": 0.02}),
         ArgSpec(("--batch-size",), {"type": int, "default": 32}),
         ArgSpec(("--num-workers",), {"type": int, "default": 4}),
         ArgSpec(("--num-samples",), {"type": int, "default": 6}),
@@ -450,6 +580,18 @@ def _build_arg_schema() -> List[ArgSpec]:
         ),
         ArgSpec(
             ("--summary-csv-name",), {"type": str, "default": "evaluation_summary.csv"}
+        ),
+        ArgSpec(
+            ("--segmented-gallery-name",),
+            {"type": str, "default": "evaluation_segmented_gallery.png"},
+        ),
+        ArgSpec(
+            ("--segmented-metrics-csv-name",),
+            {"type": str, "default": "evaluation_segmented_per_sample.csv"},
+        ),
+        ArgSpec(
+            ("--segmented-summary-csv-name",),
+            {"type": str, "default": "evaluation_segmented_summary.csv"},
         ),
         ArgSpec(("--views",), {"type": str, "default": "30,45;30,135"}),
         ArgSpec(("--point-size",), {"type": float, "default": 1.5}),
@@ -489,6 +631,9 @@ def main() -> None:
     gallery_output = run_dir / args.gallery_name
     metrics_csv = run_dir / args.metrics_csv_name
     summary_csv = run_dir / args.summary_csv_name
+    segmented_gallery_output = run_dir / args.segmented_gallery_name
+    segmented_metrics_csv = run_dir / args.segmented_metrics_csv_name
+    segmented_summary_csv = run_dir / args.segmented_summary_csv_name
 
     logger.info("Device: {device}", device=cfg.device)
     logger.info("Data root: {root}", root=data_root)
@@ -500,6 +645,8 @@ def main() -> None:
 
     _, _, test_loader = create_train_val_test_dataloaders(
         dataset,
+        train_ratio=0.99,
+        val_ratio=0.009,
         batch_size=args.batch_size,
         seed=args.seed,
         num_workers=args.num_workers,
@@ -559,6 +706,8 @@ def main() -> None:
 
     per_sample_records: List[Dict[str, object]] = []
     selected_payload: Dict[int, Dict[str, object]] = {}
+    segmented_records: List[Dict[str, object]] = []
+    segmented_selected_payload: Dict[int, Dict[str, object]] = {}
 
     running_sample_idx = 0
     for batch in tqdm(test_loader, desc="Evaluating", unit="batch"):
@@ -604,6 +753,14 @@ def main() -> None:
             )
 
         for i, sample_idx in enumerate(batch_indices_cpu):
+            original_i = originals[i]
+            defected_i = defected_for_model[i]
+            reference = _build_segment_reference(
+                original=original_i,
+                defected=defected_i,
+                segment_threshold=args.segment_threshold,
+            )
+
             defected_metric_values = {
                 metric_name: float(defected_metric_batch[metric_name][i].item())
                 for metric_name in metrics
@@ -619,6 +776,7 @@ def main() -> None:
 
             sample_predictions: Dict[str, torch.Tensor] = {}
             sample_metrics: Dict[str, Dict[str, float]] = {}
+            sample_segmented: Dict[str, Dict[str, object]] = {}
             for spec in model_specs:
                 model_metric_values = {
                     metric_name: float(
@@ -636,8 +794,35 @@ def main() -> None:
                     }
                 )
 
+                current_pred_i = model_pred_batches[spec.name][i].to(cfg.device)
+                pred_split = _split_current_by_reference(
+                    current=current_pred_i,
+                    original=original_i,
+                    repaired_target_mask=reference["repaired_target_mask"],
+                )
+                pred_segment_metrics = _compute_segmented_metrics(
+                    original=original_i,
+                    current=current_pred_i,
+                    reference=reference,
+                    current_split=pred_split,
+                    metrics=metrics,
+                    density_alpha=args.density_alpha,
+                )
+                segmented_records.append(
+                    {
+                        "sample_index": sample_idx,
+                        "model": spec.name,
+                        "metrics": pred_segment_metrics,
+                    }
+                )
+
                 sample_metrics[spec.name] = model_metric_values
                 sample_predictions[spec.name] = model_pred_batches[spec.name][i]
+                sample_segmented[spec.name] = {
+                    "current_repaired": pred_split["current_repaired"].detach().cpu(),
+                    "current_preserved": pred_split["current_preserved"].detach().cpu(),
+                    "metrics": pred_segment_metrics,
+                }
 
             if sample_idx in selected_set:
                 selected_payload[sample_idx] = {
@@ -647,10 +832,27 @@ def main() -> None:
                     "predictions": sample_predictions,
                     "metrics": sample_metrics,
                 }
+                segmented_selected_payload[sample_idx] = {
+                    "original_preserved": reference["original_preserved"]
+                    .detach()
+                    .cpu(),
+                    "repaired_target": reference["repaired_target"].detach().cpu(),
+                    "per_model": sample_segmented,
+                }
 
     aggregate_rows = _compute_aggregate_table(per_sample_records, metrics)
     _save_per_sample_csv(metrics_csv, per_sample_records, metrics)
     _save_aggregate_csv(summary_csv, aggregate_rows)
+
+    segmented_metric_cols = _metric_columns(segmented_records, [])
+    segmented_aggregate_rows = _compute_aggregate_table(
+        segmented_records,
+        segmented_metric_cols,
+    )
+    _save_per_sample_csv(
+        segmented_metrics_csv, segmented_records, segmented_metric_cols
+    )
+    _save_aggregate_csv(segmented_summary_csv, segmented_aggregate_rows)
 
     pointclouds = []
     descriptions = []
@@ -717,9 +919,98 @@ def main() -> None:
         seed=args.seed,
     )
 
+    segmented_pointclouds = []
+    segmented_badge_labels = []
+    segmented_badge_details = []
+    segmented_descriptions = []
+    segmented_kept_indices: List[int] = []
+
+    for idx in chosen_indices:
+        payload = segmented_selected_payload.get(idx)
+        if payload is None:
+            continue
+
+        labels = []
+        details = []
+        rows = []
+
+        for model_name in [spec.name for spec in model_specs]:
+            model_payload = payload["per_model"][model_name]
+            model_metrics = model_payload["metrics"]
+
+            repaired_lines = [f"N={model_payload['current_repaired'].shape[0]}"]
+            repaired_lines.extend(
+                _segmented_metric_lines(
+                    model_metrics,
+                    prefix="repaired_target_vs_current_repaired",
+                    metrics=metrics,
+                )
+            )
+            preserved_lines = [f"N={model_payload['current_preserved'].shape[0]}"]
+            preserved_lines.extend(
+                _segmented_metric_lines(
+                    model_metrics,
+                    prefix="original_preserved_vs_current_preserved",
+                    metrics=metrics,
+                )
+            )
+
+            rows.append(payload["repaired_target"])
+            labels.append("Target Repaired-Part")
+            details.append(f"N={payload['repaired_target'].shape[0]}")
+
+            rows.append(model_payload["current_repaired"])
+            labels.append(f"{model_name} Repaired-Part")
+            details.append("\n".join(repaired_lines))
+
+            rows.append(payload["original_preserved"])
+            labels.append("Target Preserved-Part")
+            details.append(f"N={payload['original_preserved'].shape[0]}")
+
+            rows.append(model_payload["current_preserved"])
+            labels.append(f"{model_name} Preserved-Part")
+            details.append("\n".join(preserved_lines))
+
+        segmented_pointclouds.append(rows)
+        segmented_badge_labels.append(labels)
+        segmented_badge_details.append(details)
+        segmented_descriptions.append("")
+        segmented_kept_indices.append(idx)
+
+    if segmented_pointclouds:
+        seg_cfg = GalleryConfig(
+            max_sample_cols=args.max_sample_cols,
+            views=_parse_views(args.views),
+            point_size=args.point_size,
+            max_points=args.max_points,
+            zoom=args.zoom,
+            dpi=args.dpi,
+        )
+        save_dataset_gallery(
+            segmented_pointclouds,
+            str(segmented_gallery_output),
+            dataset_name=f"{args.dataset}-segmented-evaluation",
+            sample_indices=segmented_kept_indices,
+            descriptions=segmented_descriptions,
+            badge_labels=segmented_badge_labels,
+            badge_details=segmented_badge_details,
+            side_notes=[],
+            config=seg_cfg,
+            seed=args.seed,
+        )
+
     logger.info("Saved gallery image to {path}", path=gallery_output)
     logger.info("Saved per-sample metrics to {path}", path=metrics_csv)
     logger.info("Saved aggregate summary to {path}", path=summary_csv)
+    logger.info(
+        "Saved segmented gallery image to {path}", path=segmented_gallery_output
+    )
+    logger.info(
+        "Saved segmented per-sample metrics to {path}", path=segmented_metrics_csv
+    )
+    logger.info(
+        "Saved segmented aggregate summary to {path}", path=segmented_summary_csv
+    )
 
 
 if __name__ == "__main__":

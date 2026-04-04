@@ -54,9 +54,16 @@ def _to_numpy_points(obj: Any) -> Optional[np.ndarray]:
         arr = obj.detach().cpu().numpy()
     elif hasattr(obj, "pos"):
         pos = obj.pos
-        arr = pos.detach().cpu().numpy() if isinstance(pos, torch.Tensor) else np.asarray(pos)
+        arr = (
+            pos.detach().cpu().numpy()
+            if isinstance(pos, torch.Tensor)
+            else np.asarray(pos)
+        )
     else:
-        arr = np.asarray(obj)
+        try:
+            arr = np.asarray(obj)
+        except (TypeError, ValueError):
+            return None
 
     if arr.ndim == 3 and arr.shape[0] == 1:
         arr = arr[0]
@@ -67,8 +74,27 @@ def _to_numpy_points(obj: Any) -> Optional[np.ndarray]:
     return arr.astype(np.float32, copy=False)
 
 
-def _extract_points_and_colors(obj: Any) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+def _extract_points_and_colors(
+    obj: Any,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Extract points and optional RGB colors from supported point-cloud containers."""
+    if isinstance(obj, (tuple, list)) and len(obj) == 2:
+        # Allow explicit (points, colors) payloads often used by visualization helpers.
+        points = _to_numpy_points(obj[0])
+        if points is not None:
+            raw_colors = np.asarray(obj[1])
+            colors = None
+            if raw_colors.ndim == 2 and raw_colors.shape[0] == points.shape[0]:
+                if raw_colors.shape[1] >= 3:
+                    colors = raw_colors[:, :3].astype(np.float32, copy=False)
+
+            if colors is not None and colors.size > 0:
+                if colors.max() > 1.0:
+                    colors = colors / 255.0
+                colors = np.clip(colors, 0.0, 1.0)
+
+            return points, colors
+
     points = _to_numpy_points(obj)
     if points is None:
         return None, None
@@ -86,6 +112,7 @@ def _extract_points_and_colors(obj: Any) -> Tuple[Optional[np.ndarray], Optional
         colors = np.clip(colors, 0.0, 1.0)
 
     return points, colors
+
 
 def _normalize_points(points: np.ndarray) -> np.ndarray:
     center = points.mean(axis=0, keepdims=True)
@@ -128,7 +155,9 @@ def render_pointcloud_view(
         raise ValueError("Could not extract point cloud points for rendering")
 
     points = _normalize_points(points)
-    pts, colors = _subsample_points(points, max_points=max_points, rng=rng, colors=colors)
+    pts, colors = _subsample_points(
+        points, max_points=max_points, rng=rng, colors=colors
+    )
 
     fig = plt.figure(figsize=(3.2, 3.2), dpi=220)
     ax = fig.add_subplot(111, projection="3d")
@@ -175,7 +204,9 @@ def render_pointcloud_view(
 
     fig.canvas.draw()
     width, height = fig.canvas.get_width_height()
-    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(
+        height, width, 3
+    )
     plt.close(fig)
     return img
 
@@ -197,7 +228,9 @@ def render_source_image_grid(
         ax = fig.add_subplot(111)
         fig.patch.set_facecolor(background_color)
         ax.set_facecolor(background_color)
-        ax.text(0.5, 0.5, "No images", ha="center", va="center", color="#374151", fontsize=9)
+        ax.text(
+            0.5, 0.5, "No images", ha="center", va="center", color="#374151", fontsize=9
+        )
         ax.set_axis_off()
         fig.tight_layout(pad=0)
         fig.canvas.draw()
@@ -238,7 +271,9 @@ def render_source_image_grid(
     fig.tight_layout(pad=0)
     fig.canvas.draw()
     width, height = fig.canvas.get_width_height()
-    out = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
+    out = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(
+        height, width, 3
+    )
     plt.close(fig)
     return out
 
@@ -316,7 +351,9 @@ def create_dataset_gallery_figure(
     rng = np.random.default_rng(seed)
     views = list(config.views)
     n_samples = len(pointclouds)
-    cloud_rows_per_sample = [len(pc) if isinstance(pc, (tuple, list)) else 1 for pc in pointclouds]
+    cloud_rows_per_sample = [
+        len(pc) if isinstance(pc, (tuple, list)) else 1 for pc in pointclouds
+    ]
     max_cloud_rows = max(cloud_rows_per_sample)
 
     n_sample_cols = max(1, min(config.max_sample_cols, n_samples))
@@ -378,9 +415,15 @@ def create_dataset_gallery_figure(
             row_count,
             len(views),
             height_ratios=[
-                config.image_row_height_ratio
-                if (i < len(clouds) and isinstance(clouds[i], dict) and clouds[i].get("type") in {"images", "masks"})
-                else 1.0
+                (
+                    config.image_row_height_ratio
+                    if (
+                        i < len(clouds)
+                        and isinstance(clouds[i], dict)
+                        and clouds[i].get("type") in {"images", "masks"}
+                    )
+                    else 1.0
+                )
                 for i in range(row_count)
             ],
             wspace=config.inner_wspace,
@@ -395,7 +438,10 @@ def create_dataset_gallery_figure(
                 continue
 
             row_item = clouds[group_idx]
-            is_image_row = isinstance(row_item, dict) and row_item.get("type") in {"images", "masks"}
+            is_image_row = isinstance(row_item, dict) and row_item.get("type") in {
+                "images",
+                "masks",
+            }
 
             if is_image_row:
                 ax = fig.add_subplot(inner[group_idx, :])
