@@ -90,6 +90,11 @@ def _build_dataset(args):
         normalize_patches=args.normalize_patches,
         overlap_ratio=args.overlap_ratio,
         max_extra_patches=args.max_extra_patches,
+        patching_method=args.patching_method,
+        patch_radius=args.patch_radius,
+        patch_center=args.patch_center,
+        patch_point_count_std=args.patch_point_count_std,
+        include_full_objects_in_patches=args.include_full_objects_in_patches,
     )
 
 
@@ -249,6 +254,37 @@ def main():
     parser.add_argument("--normalize-patches", action="store_true")
     parser.add_argument("--overlap-ratio", type=float, default=0.5)
     parser.add_argument("--max-extra-patches", type=int, default=None)
+    parser.add_argument(
+        "--patching-method",
+        type=str,
+        default="fps_knn",
+        choices=["fps_knn", "pointcleannet_radius"],
+        help="Patch extraction algorithm. pointcleannet_radius emulates PointCleanNet radius patches.",
+    )
+    parser.add_argument(
+        "--patch-radius",
+        type=float,
+        default=0.05,
+        help="Radius as a fraction of cloud bounding-box diagonal for pointcleannet_radius mode.",
+    )
+    parser.add_argument(
+        "--patch-center",
+        type=str,
+        default="point",
+        choices=["point", "mean", "none"],
+        help="Centering mode for pointcleannet_radius patches.",
+    )
+    parser.add_argument(
+        "--patch-point-count-std",
+        type=float,
+        default=0.0,
+        help="Optional random reduction of points per patch in pointcleannet_radius mode.",
+    )
+    parser.add_argument(
+        "--include-full-objects-in-patches",
+        action="store_true",
+        help="When patching is enabled, keep whole-object tensors in each patched sample as original_full_pos/defected_full_pos.",
+    )
 
     parser.add_argument(
         "--views",

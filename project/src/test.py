@@ -1,76 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import numpy as np
 
 from core import (
     bootstrap,
     create_basic_reconstruction_dataset,
-    load_model_checkpoint,
-    create_model,
-    ModelConfig,
 )
 import polyscope as ps
 import torch
-from pytorch3d.ops import knn_points
-from metrics import (
-    chamfer_distance_metric,
-    density_aware_chamfer_distance_metric,
-    hausdorff_distance_metric,
-)
-
-
-def _region_masks(a: torch.Tensor, b: torch.Tensor, threshold: float) -> torch.Tensor:
-    """Mask points in a whose nearest point in b is farther than threshold."""
-    d2 = knn_points(a.unsqueeze(0), b.unsqueeze(0), K=1).dists.squeeze(0).squeeze(-1)
-    return torch.sqrt(d2) > threshold
-
-
-def split_original_defected(
-    original: torch.Tensor,
-    defected: torch.Tensor,
-    threshold: float,
-) -> dict[str, torch.Tensor]:
-    """Split original/defected into repaired-target and preserved/noise regions.
-
-    repaired_target corresponds to points present in original but missing in defected.
-    """
-    missing_mask = _region_masks(original, defected, threshold)
-    defected_extra_mask = _region_masks(defected, original, threshold)
-
-    return {
-        "repaired_target": original[missing_mask],
-        "original_preserved": original[~missing_mask],
-        "defected_extra": defected[defected_extra_mask],
-        "defected_supported": defected[~defected_extra_mask],
-    }
-
-
-def split_prediction_by_target_region(
-    prediction: torch.Tensor,
-    original: torch.Tensor,
-    repaired_target_mask: torch.Tensor,
-) -> dict[str, torch.Tensor]:
-    """Split predicted points by nearest GT region (repaired target vs preserved)."""
-    nn_idx = (
-        knn_points(prediction.unsqueeze(0), original.unsqueeze(0), K=1)
-        .idx.squeeze(0)
-        .squeeze(-1)
-        .long()
-    )
-    pred_hits_repaired = repaired_target_mask[nn_idx]
-
-    return {
-        "pred_repaired": prediction[pred_hits_repaired],
-        "pred_preserved": prediction[~pred_hits_repaired],
-    }
-
-
-def _run_model(
-    model: torch.nn.Module, x: torch.Tensor, device: torch.device
-) -> torch.Tensor:
-    with torch.no_grad():
-        _, pred = model(x.to(device))
-        return pred.squeeze(0).cpu()
 
 
 def _show_clouds(clouds: dict[str, torch.Tensor]) -> None:
@@ -80,22 +18,23 @@ def _show_clouds(clouds: dict[str, torch.Tensor]) -> None:
     color_map = {
         "original": (0.0, 1.0, 0.0),
         "defected": (1.0, 0.0, 0.0),
-        "prediction": (0.0, 0.0, 1.0),
-        "repaired_target": (1.0, 1.0, 0.0),
-        "original_preserved": (0.3, 1.0, 0.3),
-        "defected_extra": (1.0, 0.5, 0.0),
-        "defected_supported": (0.8, 0.3, 0.3),
-        "pred_repaired": (0.0, 1.0, 1.0),
-        "pred_preserved": (0.2, 0.2, 1.0),
+        "all_patch_original": (0.1, 0.7, 0.7),
+        "all_patch_defected": (0.8, 0.1, 0.8),
+        "all_patch_centers": (1.0, 1.0, 0.0),
+        "patch_original": (0.0, 0.8, 0.8),
+        "patch_defected": (1.0, 0.0, 1.0),
+        "patch_center": (1.0, 1.0, 1.0),
     }
 
     for name, points in clouds.items():
         if points is None or points.numel() == 0:
             continue
 
+        ps_points = _to_polyscope_points(points)
+
         ps.register_point_cloud(
             name,
-            points,
+            ps_points,
             radius=0.00035,
             color=color_map.get(name, (0.8, 0.8, 0.8)),
             point_render_mode="quad",
@@ -104,85 +43,123 @@ def _show_clouds(clouds: dict[str, torch.Tensor]) -> None:
     ps.show()
 
 
-def _compute_pair_metrics(
-    source: torch.Tensor,
-    target: torch.Tensor,
-    density_alpha: float,
-) -> dict[str, float]:
-    if source.numel() == 0 or target.numel() == 0:
-        return {
-            "chamfer": float("nan"),
-            "dcd": float("nan"),
-            "hausdorff": float("nan"),
-        }
+def _extract_patch(
+    sample,
+    key: str,
+    patch_index: int,
+    valid_count_key: str | None = None,
+) -> torch.Tensor:
+    patches = getattr(sample, key)
+    if not torch.is_tensor(patches) or patches.ndim != 3:
+        raise ValueError(f"Expected {key} to have shape (M, K, 3)")
 
-    return {
-        "chamfer": float(chamfer_distance_metric(source, target).item()),
-        "dcd": float(
-            density_aware_chamfer_distance_metric(
-                source,
-                target,
-                alpha=density_alpha,
-            ).item()
-        ),
-        "hausdorff": float(hausdorff_distance_metric(source, target).item()),
-    }
+    m = int(patches.shape[0])
+    if m == 0:
+        raise ValueError(f"No patches available in {key}")
+
+    patch_index = max(0, min(int(patch_index), m - 1))
+    patch = patches[patch_index].float().cpu()
+
+    if valid_count_key is None or not hasattr(sample, valid_count_key):
+        return patch
+
+    valid_counts = getattr(sample, valid_count_key)
+    if not torch.is_tensor(valid_counts) or valid_counts.ndim != 1:
+        return patch
+
+    valid = int(valid_counts[patch_index].item())
+    valid = max(0, min(valid, int(patch.shape[0])))
+    return patch[:valid]
 
 
-def _print_pairwise_metrics(
-    clouds: dict[str, torch.Tensor],
-    density_alpha: float,
-) -> None:
-    # Core comparisons requested in comment.
-    pairs = [
-        ("original", "defected", "damage severity"),
-        ("original", "prediction", "overall reconstruction quality"),
-        (
-            "original_preserved",
-            "pred_preserved",
-            "preserved-region fidelity",
-        ),
-        (
-            "repaired_target",
-            "pred_repaired",
-            "repair-region quality",
-        ),
-        # Extra diagnostics that are often useful.
-        ("defected", "prediction", "total change from defected input"),
-        (
-            "defected_extra",
-            "pred_repaired",
-            "whether model over-focuses on artifact region",
-        ),
-    ]
+def _to_polyscope_points(points: torch.Tensor | np.ndarray) -> np.ndarray:
+    if torch.is_tensor(points):
+        arr = points.detach().cpu().numpy()
+    else:
+        arr = np.asarray(points)
 
-    print("\nPairwise metrics (lower is better):")
-    for src_name, tgt_name, note in pairs:
-        values = _compute_pair_metrics(
-            source=clouds[src_name],
-            target=clouds[tgt_name],
-            density_alpha=density_alpha,
-        )
+    arr = np.asarray(arr, dtype=np.float32)
 
-        print(
-            f"- {src_name} vs {tgt_name} ({note}) | "
-            f"CD={values['chamfer']:.6f}, DCD={values['dcd']:.6f}, HD={values['hausdorff']:.6f}"
-        )
+    if arr.ndim == 3 and arr.shape[-1] == 3:
+        arr = arr.reshape(-1, 3)
+
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        raise ValueError(f"Polyscope expects shape (N, 3), got {arr.shape}")
+
+    return arr
+
+
+def _flatten_patches(
+    patches: torch.Tensor,
+    valid_counts: torch.Tensor | None,
+) -> torch.Tensor:
+    if not torch.is_tensor(patches) or patches.ndim != 3:
+        raise ValueError("Expected patches with shape (M, K, 3)")
+
+    out = []
+    for i in range(int(patches.shape[0])):
+        patch = patches[i].float().cpu()
+        if valid_counts is not None and torch.is_tensor(valid_counts):
+            valid = int(valid_counts[i].item())
+            valid = max(0, min(valid, int(patch.shape[0])))
+            patch = patch[:valid]
+        out.append(patch)
+
+    if not out:
+        return torch.empty((0, 3), dtype=patches.dtype)
+    return torch.cat(out, dim=0)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Segmented repair-target extraction test"
-    )
+    parser = argparse.ArgumentParser(description="Patch extraction test")
     parser.add_argument("--sample-index", type=int, default=0)
-    parser.add_argument("--segment-threshold", type=float, default=0.02)
-    parser.add_argument("--density-alpha", type=float, default=1000.0)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument(
+        "--patching-method",
+        type=str,
+        default="pointcleannet_radius",
+        choices=["fps_knn", "pointcleannet_radius"],
+    )
+    parser.add_argument("--patch-size", type=int, default=8192)
+    parser.add_argument("--num-patches", type=int, default=64)
+    parser.add_argument("--patch-radius", type=float, default=0.1)
+    parser.add_argument(
+        "--patch-center",
+        type=str,
+        default="point",
+        choices=["point", "mean", "none"],
+    )
+    parser.add_argument("--patch-point-count-std", type=float, default=0.0)
+    parser.add_argument("--patch-index", type=int, default=0)
+    parser.add_argument("--normalize-patches", action="store_true")
     args = parser.parse_args()
 
     cfg = bootstrap()
 
-    model = create_model(
+    patched_dataset = create_basic_reconstruction_dataset(
+        seed=cfg.seed,
+        root=cfg.data_dir,
+        dense=True,
+        dense_root=cfg.data_dir / "ShapeNetV2_dense",
+        split_into_patches=True,
+        patch_size=args.patch_size,
+        num_patches=args.num_patches,
+        normalize_patches=args.normalize_patches,
+        patching_method=args.patching_method,
+        patch_radius=args.patch_radius,
+        patch_center=args.patch_center,
+        patch_point_count_std=args.patch_point_count_std,
+        include_full_objects_in_patches=True,
+    )
+
+    if args.sample_index < 0 or args.sample_index >= len(patched_dataset):
+        raise ValueError(
+            f"--sample-index must be in [0, {len(patched_dataset) - 1}], got {args.sample_index}"
+        )
+
+    from core import create_model, ModelConfig, load_model_checkpoint
+
+    pointr = create_model(
         ModelConfig(
             name="pointr",
             params={
@@ -191,92 +168,126 @@ def main():
                 "num_pred": 16384,
                 "num_query": 224,
             },
-        ),
-        device=cfg.device,
+        )
     )
 
     load_model_checkpoint(
         checkpoint_path=cfg.checkpoint_dir / "pointr" / "v1_best.pt",
-        model=model,
-        map_location=cfg.device,
+        model=pointr,
+        map_location="cuda",
         strict=True,
         weights_only=False,
     )
-    model.eval()
 
-    basic_dataset = create_basic_reconstruction_dataset(
-        seed=cfg.seed, root=cfg.data_dir
+    pointr.eval()
+
+    _, pred = pointr(
+        patched_dataset[args.sample_index].defected_pos.float().cpu()[0].unsqueeze(0)
     )
 
-    if args.sample_index < 0 or args.sample_index >= len(basic_dataset):
-        raise ValueError(
-            f"--sample-index must be in [0, {len(basic_dataset) - 1}], got {args.sample_index}"
-        )
+    ps.init()
 
-    sample = basic_dataset[args.sample_index]
-    original = sample.original_pos.float().cpu()
-    defected = sample.defected_pos.float().cpu()
-
-    prediction = _run_model(model, defected.unsqueeze(0), cfg.device)
-
-    split_gt = split_original_defected(
-        original=original,
-        defected=defected,
-        threshold=args.segment_threshold,
+    ps.register_point_cloud(
+        "pred",
+        _to_polyscope_points(pred.squeeze(0)),
+        radius=0.00035,
+        color=(0.0, 0.0, 1.0),
+        point_render_mode="quad",
     )
 
-    repaired_target_mask = _region_masks(original, defected, args.segment_threshold)
-    split_pred = split_prediction_by_target_region(
-        prediction=prediction,
-        original=original,
-        repaired_target_mask=repaired_target_mask,
+    ps.register_point_cloud(
+        "defected",
+        patched_dataset[args.sample_index].defected_pos[0],
+        radius=0.00035,
+        color=(1.0, 0.0, 0.0),
+        point_render_mode="quad",
     )
+
+    ps.register_point_cloud(
+        "original",
+        patched_dataset[args.sample_index].original_pos[0],
+        radius=0.00035,
+        color=(0.0, 1.0, 0.0),
+        point_render_mode="quad",
+    )
+
+    ps.show()
+
+    print(pred)
+
+    print(patched_dataset[0])
+    exit(0)
+
+    patched_sample = patched_dataset[args.sample_index]
+    if hasattr(patched_sample, "original_full_pos") and hasattr(
+        patched_sample, "defected_full_pos"
+    ):
+        original = patched_sample.original_full_pos.float().cpu()
+        defected = patched_sample.defected_full_pos.float().cpu()
+    else:
+        # Fallback for configurations without full-object attachment.
+        original = patched_sample.original_pos.float().cpu().reshape(-1, 3)
+        defected = patched_sample.defected_pos.float().cpu().reshape(-1, 3)
 
     print(f"Sample index: {args.sample_index}")
-    print(f"Threshold: {args.segment_threshold}")
     print(f"Original points: {original.shape[0]}")
     print(f"Defected points: {defected.shape[0]}")
-    print(f"Prediction points: {prediction.shape[0]}")
-    print(
-        f"Repaired target points (original - defected): {split_gt['repaired_target'].shape[0]}"
-    )
-    print(f"Original preserved points: {split_gt['original_preserved'].shape[0]}")
-    print(
-        f"Defected extra points (defected - original): {split_gt['defected_extra'].shape[0]}"
-    )
-    print(f"Defected supported points: {split_gt['defected_supported'].shape[0]}")
-    print(
-        f"Pred points mapped to repaired target: {split_pred['pred_repaired'].shape[0]}"
-    )
-    print(
-        f"Pred points mapped to preserved region: {split_pred['pred_preserved'].shape[0]}"
-    )
 
     clouds = {
         "original": original,  # whole original cloud
         "defected": defected,  # whole defected cloud
-        "prediction": prediction,  # whole predicted cloud
-        "repaired_target": split_gt[
-            "repaired_target"
-        ],  # points in original missing from defected
-        "original_preserved": split_gt[
-            "original_preserved"
-        ],  # points in original preserved in defected
-        "defected_extra": split_gt[
-            "defected_extra"
-        ],  # points in defected not in original
-        "defected_supported": split_gt[
-            "defected_supported"
-        ],  # points in defected supported by original
-        "pred_repaired": split_pred[
-            "pred_repaired"
-        ],  # predicted points closest to repaired target region
-        "pred_preserved": split_pred[
-            "pred_preserved"
-        ],  # predicted points closest to preserved region
     }
 
-    _print_pairwise_metrics(clouds, density_alpha=args.density_alpha)
+    all_patch_original = _flatten_patches(
+        patched_sample.original_pos,
+        getattr(patched_sample, "original_valid_counts", None),
+    )
+    all_patch_defected = _flatten_patches(
+        patched_sample.defected_pos,
+        getattr(patched_sample, "defected_valid_counts", None),
+    )
+    patch_original = _extract_patch(
+        patched_sample,
+        key="original_pos",
+        patch_index=args.patch_index,
+        valid_count_key="original_valid_counts",
+    )
+    patch_defected = _extract_patch(
+        patched_sample,
+        key="defected_pos",
+        patch_index=args.patch_index,
+        valid_count_key="defected_valid_counts",
+    )
+
+    safe_patch_index = max(
+        0,
+        min(int(args.patch_index), int(patched_sample.original_pos.shape[0]) - 1),
+    )
+    center = patched_sample.patch_centers[safe_patch_index].float().cpu().unsqueeze(0)
+
+    print("\nPatch extraction summary:")
+    print(f"- method: {patched_sample.patching_method}")
+    print(f"- num_patches: {patched_sample.num_patches}")
+    print(f"- patch_size: {patched_sample.patch_size}")
+    print(f"- selected_patch_index: {safe_patch_index}")
+    print(f"- patch_radius_ratio: {patched_sample.patch_radius}")
+    print(f"- coverage_ratio: {patched_sample.coverage_ratio:.4f}")
+    if hasattr(patched_sample, "original_full_pos") and hasattr(
+        patched_sample, "defected_full_pos"
+    ):
+        print(f"- full_original_points: {patched_sample.original_full_pos.shape[0]}")
+        print(f"- full_defected_points: {patched_sample.defected_full_pos.shape[0]}")
+    print(f"- all_original_patch_points: {all_patch_original.shape[0]}")
+    print(f"- all_defected_patch_points: {all_patch_defected.shape[0]}")
+    print(f"- selected_original_patch_points: {patch_original.shape[0]}")
+    print(f"- selected_defected_patch_points: {patch_defected.shape[0]}")
+
+    clouds["all_patch_original"] = all_patch_original
+    clouds["all_patch_defected"] = all_patch_defected
+    clouds["all_patch_centers"] = patched_sample.patch_centers.float().cpu()
+    clouds["patch_original"] = patch_original
+    clouds["patch_defected"] = patch_defected
+    clouds["patch_center"] = center
 
     if args.visualize:
         _show_clouds(clouds)

@@ -37,6 +37,11 @@ def _prepare_dataset_pipeline(
     normalize_patches: bool,
     overlap_ratio: float,
     max_extra_patches: Optional[int],
+    patching_method: str,
+    patch_radius: float,
+    patch_center: str,
+    patch_point_count_std: float,
+    include_full_objects_in_patches: bool,
     seed: int,
 ) -> Dataset:
     dataset: Dataset = base_dataset
@@ -67,6 +72,11 @@ def _prepare_dataset_pipeline(
             normalize_patches=normalize_patches,
             overlap_ratio=overlap_ratio,
             max_extra_patches=max_extra_patches,
+            patching_method=patching_method,
+            patch_radius=patch_radius,
+            patch_center=patch_center,
+            patch_point_count_std=patch_point_count_std,
+            include_full_objects=include_full_objects_in_patches,
         )
 
     return dataset
@@ -89,6 +99,11 @@ def create_basic_reconstruction_dataset(
     normalize_patches: bool = False,
     overlap_ratio: float = 0.5,
     max_extra_patches: Optional[int] = None,
+    patching_method: str = "fps_knn",
+    patch_radius: float = 0.05,
+    patch_center: str = "point",
+    patch_point_count_std: float = 0.0,
+    include_full_objects_in_patches: bool = False,
 ) -> Dataset:
     """
     Build a reconstruction dataset with structural missing parts and small local holes.
@@ -130,6 +145,11 @@ def create_basic_reconstruction_dataset(
         normalize_patches=normalize_patches,
         overlap_ratio=overlap_ratio,
         max_extra_patches=max_extra_patches,
+        patching_method=patching_method,
+        patch_radius=patch_radius,
+        patch_center=patch_center,
+        patch_point_count_std=patch_point_count_std,
+        include_full_objects_in_patches=include_full_objects_in_patches,
         seed=seed,
     )
 
@@ -163,6 +183,11 @@ def create_advanced_reconstruction_dataset(
     normalize_patches: bool = False,
     overlap_ratio: float = 0.5,
     max_extra_patches: Optional[int] = None,
+    patching_method: str = "fps_knn",
+    patch_radius: float = 0.05,
+    patch_center: str = "point",
+    patch_point_count_std: float = 0.0,
+    include_full_objects_in_patches: bool = False,
 ) -> Dataset:
     """
     Build a richer reconstruction dataset with missing parts + local holes and
@@ -240,6 +265,11 @@ def create_advanced_reconstruction_dataset(
         normalize_patches=normalize_patches,
         overlap_ratio=overlap_ratio,
         max_extra_patches=max_extra_patches,
+        patching_method=patching_method,
+        patch_radius=patch_radius,
+        patch_center=patch_center,
+        patch_point_count_std=patch_point_count_std,
+        include_full_objects_in_patches=include_full_objects_in_patches,
         seed=seed,
     )
 

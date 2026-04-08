@@ -1,0 +1,18 @@
+{
+  "model": "pointr",
+  "model_params": {
+    "trans_dim": 384,
+    "knn_layer": 1,
+    "num_pred": 16384,
+    "num_query": 224
+  },
+  "epochs": 40,
+  "batch_size": 16,
+  "learning_rate": 5e-05,
+  "weight_decay": 0.0001,
+  "best_val_combined": 0.06522880122065544,
+  "patch_probability": 0.5,
+  "val_patch_weight": 0.5,
+  "run_dir": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/pointr_finetune_20260408_212823",
+  "best_checkpoint": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/pointr_finetune_20260408_212823/checkpoints/best_finetune.pt"
+}
