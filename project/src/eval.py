@@ -4,7 +4,7 @@ import csv
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -98,7 +98,7 @@ def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
         model_type = parts[1].strip().lower()
         checkpoint = parts[2].strip()
 
-        if model_type not in {"pcn", "pointr"}:
+        if model_type not in {"pcn", "pointr", "adapointr"}:
             raise ValueError(f"Unsupported model_type '{model_type}' in '{raw}'")
         if not name:
             raise ValueError(f"Model name is empty in '{raw}'")
@@ -112,7 +112,7 @@ def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
     return specs
 
 
-def _default_model_params(model_type: str) -> Dict[str, int]:
+def _default_model_params(model_type: str) -> Dict[str, Any]:
     if model_type == "pcn":
         return {
             "num_dense": 16384,
@@ -125,6 +125,62 @@ def _default_model_params(model_type: str) -> Dict[str, int]:
             "knn_layer": 1,
             "num_pred": 16384,
             "num_query": 224,
+        }
+    if model_type == "adapointr":
+        return {
+            "num_query": 512,
+            "num_points": 16384,
+            "center_num": [512, 256],
+            "global_feature_dim": 1024,
+            "encoder_type": "graph",
+            "decoder_type": "fc",
+            "encoder_config": {
+                "embed_dim": 384,
+                "depth": 6,
+                "num_heads": 6,
+                "k": 8,
+                "n_group": 2,
+                "mlp_ratio": 2.0,
+                "block_style_list": [
+                    "attn-graph",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                ],
+                "combine_style": "concat",
+            },
+            "decoder_config": {
+                "embed_dim": 384,
+                "depth": 8,
+                "num_heads": 6,
+                "k": 8,
+                "n_group": 2,
+                "mlp_ratio": 2.0,
+                "self_attn_block_style_list": [
+                    "attn-graph",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                ],
+                "self_attn_combine_style": "concat",
+                "cross_attn_block_style_list": [
+                    "attn-graph",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                    "attn",
+                ],
+                "cross_attn_combine_style": "concat",
+            },
         }
     raise ValueError(f"Unsupported model type: {model_type}")
 
@@ -201,7 +257,7 @@ def _predict(
     with torch.no_grad():
         if model_type == "pcn":
             _, pred = model(defected_batched)
-        elif model_type == "pointr":
+        elif model_type in {"pointr", "adapointr"}:
             _, pred = model(defected_batched)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -645,6 +701,8 @@ def main() -> None:
 
     _, _, test_loader = create_train_val_test_dataloaders(
         dataset,
+        train_ratio=0.99,
+        val_ratio=0.009,
         batch_size=args.batch_size,
         seed=args.seed,
         num_workers=args.num_workers,
