@@ -3,3 +3,4 @@ from .split import SplitWrapperDataset
 from .augment import AugmentWrapperDataset
 from .patch import PatchWrapperDataset
 from .normalize import NormalizeWrapperDataset
+from .staged_augment import StagedAugmentWrapperDataset

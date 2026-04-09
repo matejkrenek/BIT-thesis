@@ -5,19 +5,20 @@ from torch.utils.data.dataset import Dataset
 
 from dataset import ShapeNetDataset
 from dataset.defect import (
-    BelowObjectPlane,
     Combined,
     LargeMissingRegion,
     LocalDropout,
     Noise,
     OutlierPoints,
     SurfaceToPlaneBridge,
+    BelowObjectPlane,
 )
 from dataset.wrapper import (
     AugmentWrapperDataset,
     DenseWrapperDataset,
     NormalizeWrapperDataset,
     PatchWrapperDataset,
+    StagedAugmentWrapperDataset,
 )
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -190,14 +191,13 @@ def create_advanced_reconstruction_dataset(
     include_full_objects_in_patches: bool = False,
 ) -> Dataset:
     """
-    Build a richer reconstruction dataset with missing parts + local holes and
-    additional photogrammetry-like artifacts.
+    Build advanced reconstruction in two stages:
+    1) Create the basic reconstruction dataset (holes / missing parts).
+    2) Add only noise + outliers on top of the basic defected cloud.
 
-    Added artifacts:
-      - OutlierPoints
-      - Noise
-      - SurfaceToPlaneBridge
-      - BelowObjectPlane
+    Output semantics per sample:
+      - original_pos: basic defected cloud (with holes)
+      - defected_pos: basic defected cloud + noise/outliers
     """
     if base_dataset is None:
         if not root:
@@ -205,15 +205,9 @@ def create_advanced_reconstruction_dataset(
         base_dataset = ShapeNetDataset(root=root)
 
     rng = np.random.RandomState(seed)
-    defects = [
+    stage2_defects = [
         Combined(
             [
-                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.35)),
-                LocalDropout(
-                    radius=rng.uniform(0.01, 0.06),
-                    regions=local_dropout_regions,
-                    dropout_rate=rng.uniform(0.45, 0.9),
-                ),
                 SurfaceToPlaneBridge(
                     num_bridges=int(rng.randint(6, 18)),
                     points_per_bridge=int(rng.randint(8, 24)),
@@ -252,14 +246,18 @@ def create_advanced_reconstruction_dataset(
         for _ in range(defect_augmentation_count)
     ]
 
-    dataset = _prepare_dataset_pipeline(
+    basic_dataset = create_basic_reconstruction_dataset(
         base_dataset=base_dataset,
-        defects=defects,
+        root=None,
+        seed=seed,
+        defect_augmentation_count=defect_augmentation_count,
+        local_dropout_regions=local_dropout_regions,
         dense=dense,
         dense_root=dense_root,
         dense_num_points=dense_num_points,
         normalize=normalize,
-        split_into_patches=split_into_patches,
+        visualize=False,
+        split_into_patches=False,
         patch_size=patch_size,
         num_patches=num_patches,
         normalize_patches=normalize_patches,
@@ -269,9 +267,29 @@ def create_advanced_reconstruction_dataset(
         patch_radius=patch_radius,
         patch_center=patch_center,
         patch_point_count_std=patch_point_count_std,
-        include_full_objects_in_patches=include_full_objects_in_patches,
+        include_full_objects_in_patches=False,
+    )
+
+    dataset: Dataset = StagedAugmentWrapperDataset(
+        dataset=basic_dataset,
+        defects=stage2_defects,
         seed=seed,
     )
+
+    if split_into_patches:
+        dataset = PatchWrapperDataset(
+            dataset=dataset,
+            patch_size=patch_size,
+            num_patches=num_patches,
+            normalize_patches=normalize_patches,
+            overlap_ratio=overlap_ratio,
+            max_extra_patches=max_extra_patches,
+            patching_method=patching_method,
+            patch_radius=patch_radius,
+            patch_center=patch_center,
+            patch_point_count_std=patch_point_count_std,
+            include_full_objects=include_full_objects_in_patches,
+        )
 
     if visualize:
         from visualize.viewer import SampleViewer

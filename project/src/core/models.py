@@ -68,10 +68,17 @@ def _build_adapointr(params: Mapping[str, Any]) -> nn.Module:
     return AdaPoinTr(config=config)
 
 
+def _build_pointcleannet_hybrid(params: Mapping[str, Any]) -> nn.Module:
+    from models.pointcleannet import PointCleanNetHybrid
+
+    return PointCleanNetHybrid(**dict(params))
+
+
 _MODEL_BUILDERS = {
     "pcn": _build_pcn,
     "pointr": _build_pointr,
     "adapointr": _build_adapointr,
+    "pointcleannethybrid": _build_pointcleannet_hybrid,
 }
 
 
