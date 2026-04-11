@@ -295,6 +295,8 @@ def _run_mixed_train_epoch(
     optimizer: AdamW,
     grad_clip: float,
     patch_probability: float,
+    epoch: int,
+    total_epochs: int,
 ) -> dict[str, float]:
     model.train(True)
 
@@ -306,7 +308,14 @@ def _run_mixed_train_epoch(
     full_steps = 0
     patch_steps = 0
 
-    for _ in range(steps):
+    batch_progress = tqdm(
+        range(steps),
+        desc=f"Epoch {epoch}/{total_epochs}",
+        unit="batch",
+        leave=False,
+        position=1,
+    )
+    for _ in batch_progress:
         use_patch = bool(torch.rand(1).item() < patch_probability)
 
         if use_patch:
@@ -344,6 +353,12 @@ def _run_mixed_train_epoch(
         optimizer.step()
 
         total_loss += float(metrics["total"])
+        completed_steps = full_steps + patch_steps
+        batch_progress.set_postfix(
+            loss=f"{(total_loss / max(completed_steps, 1)):.6f}",
+            full=full_steps,
+            patch=patch_steps,
+        )
 
     denom = max(full_steps + patch_steps, 1)
     return {
@@ -459,7 +474,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset-variant", type=str, choices=["basic", "advanced"], default="basic"
     )
-    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
@@ -467,7 +482,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr-gamma", type=float, default=0.5)
     parser.add_argument("--grad-clip", type=float, default=1.0)
 
-    parser.add_argument("--train-ratio", type=float, default=0.8)
+    parser.add_argument("--train-ratio", type=float, default=0.4)
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--num-workers", type=int, default=4)
 
@@ -722,6 +737,8 @@ def main() -> None:
                 optimizer=optimizer,
                 grad_clip=float(args.grad_clip),
                 patch_probability=float(args.patch_probability),
+                epoch=epoch,
+                total_epochs=int(args.epochs),
             )
 
             with torch.no_grad():

@@ -303,6 +303,10 @@ class PatchWrapperDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.dataset[idx]
+
+        if not isinstance(sample, Data) or not hasattr(sample, "original_pos") or not hasattr(sample, "defected_pos"):
+            return None  # vadný vzorek
+
         original_pos, defected_pos, data = self._extract_pos_and_meta(sample)
 
         if not torch.is_tensor(original_pos):

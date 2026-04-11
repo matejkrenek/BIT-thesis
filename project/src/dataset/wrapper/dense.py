@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import multiprocessing as mp
+from torch_geometric.data import Data
 
 
 class DenseWrapperDataset(Dataset):
@@ -65,6 +66,10 @@ class DenseWrapperDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.dataset[idx]
+
+        if not isinstance(data, Data) or not hasattr(data, "pos"):
+            return None  # vadný vzorek
+        
         self._sample_dense(idx)
         dense_path = self._get_dense_path(idx)
         dense_points = self._load_dense(dense_path)
