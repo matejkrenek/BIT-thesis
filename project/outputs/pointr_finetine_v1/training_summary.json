@@ -1,0 +1,19 @@
+{
+  "model": "pointr",
+  "model_params": {
+    "trans_dim": 384,
+    "knn_layer": 1,
+    "num_pred": 16384,
+    "num_query": 224
+  },
+  "epochs": 10,
+  "batch_size": 16,
+  "learning_rate": 5e-05,
+  "weight_decay": 0.0001,
+  "best_val_combined": 0.05202948240461717,
+  "patch_probability": 0.5,
+  "val_patch_weight": 0.5,
+  "run_dir": "/zfs-pool/home/xkrenem00/outputs/pointr_finetune_20260409_155956",
+  "best_checkpoint": "/zfs-pool/home/xkrenem00/outputs/pointr_finetune_20260409_155956/checkpoints/best_finetune.pt",
+  "loss_curve": "/zfs-pool/home/xkrenem00/outputs/pointr_finetune_20260409_155956/loss_curve.png"
+}

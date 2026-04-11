@@ -1,0 +1,18 @@
+{
+  "model": "pcn",
+  "model_params": {
+    "num_dense": 16384,
+    "latent_dim": 1024,
+    "grid_size": 4
+  },
+  "epochs": 10,
+  "batch_size": 16,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.0,
+  "best_val_combined": 0.003125606849529957,
+  "patch_probability": 0.5,
+  "val_patch_weight": 0.5,
+  "run_dir": "/zfs-pool/home/xkrenem00/outputs/pcn_finetune_20260409_160123",
+  "best_checkpoint": "/zfs-pool/home/xkrenem00/outputs/pcn_finetune_20260409_160123/checkpoints/best_finetune.pt",
+  "loss_curve": "/zfs-pool/home/xkrenem00/outputs/pcn_finetune_20260409_160123/loss_curve.png"
+}

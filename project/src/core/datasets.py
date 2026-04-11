@@ -44,6 +44,9 @@ def _prepare_dataset_pipeline(
     patch_point_count_std: float,
     include_full_objects_in_patches: bool,
     seed: int,
+    defect_cache_npz_dir: Optional[str],
+    defect_cache_read: bool,
+    defect_cache_write: bool,
 ) -> Dataset:
     dataset: Dataset = base_dataset
 
@@ -63,6 +66,9 @@ def _prepare_dataset_pipeline(
         dataset=dataset,
         defects=defects,
         seed=seed,
+        cache_npz_dir=defect_cache_npz_dir,
+        cache_read=defect_cache_read,
+        cache_write=defect_cache_write,
     )
 
     if split_into_patches:
@@ -105,6 +111,9 @@ def create_basic_reconstruction_dataset(
     patch_center: str = "point",
     patch_point_count_std: float = 0.0,
     include_full_objects_in_patches: bool = False,
+    defect_cache_npz_dir: Optional[str] = None,
+    defect_cache_read: bool = True,
+    defect_cache_write: bool = True,
 ) -> Dataset:
     """
     Build a reconstruction dataset with structural missing parts and small local holes.
@@ -152,6 +161,9 @@ def create_basic_reconstruction_dataset(
         patch_point_count_std=patch_point_count_std,
         include_full_objects_in_patches=include_full_objects_in_patches,
         seed=seed,
+        defect_cache_npz_dir=defect_cache_npz_dir,
+        defect_cache_read=defect_cache_read,
+        defect_cache_write=defect_cache_write,
     )
 
     if visualize:
@@ -189,6 +201,9 @@ def create_advanced_reconstruction_dataset(
     patch_center: str = "point",
     patch_point_count_std: float = 0.0,
     include_full_objects_in_patches: bool = False,
+    defect_cache_npz_dir: Optional[str] = None,
+    defect_cache_read: bool = True,
+    defect_cache_write: bool = True,
 ) -> Dataset:
     """
     Build advanced reconstruction in two stages:
@@ -268,6 +283,9 @@ def create_advanced_reconstruction_dataset(
         patch_center=patch_center,
         patch_point_count_std=patch_point_count_std,
         include_full_objects_in_patches=False,
+        defect_cache_npz_dir=defect_cache_npz_dir,
+        defect_cache_read=defect_cache_read,
+        defect_cache_write=defect_cache_write,
     )
 
     dataset: Dataset = StagedAugmentWrapperDataset(
