@@ -253,6 +253,8 @@ def _run_epoch(
     training: bool,
     optimizer: AdamW | None = None,
     grad_clip: float | None = None,
+    epoch: int | None = None,
+    total_epochs: int | None = None,
 ) -> tuple[float, dict[str, float]]:
     if training and optimizer is None:
         raise ValueError("optimizer is required when training=True")
@@ -264,7 +266,10 @@ def _run_epoch(
     total_fine = 0.0
     batches = 0
 
-    for originals, padded, lengths in loader:
+    desc = f"Epoch {epoch}/{total_epochs}" if (training and epoch is not None and total_epochs is not None) else None
+    batch_iter = tqdm(loader, desc=desc, unit="batch", leave=False, position=1) if training and desc else loader
+
+    for originals, padded, lengths in batch_iter:
 
         if originals is None or padded is None or lengths is None:
             continue
@@ -296,6 +301,9 @@ def _run_epoch(
         total_coarse += float(metrics.get("coarse", 0.0))
         total_fine += float(metrics.get("fine", 0.0))
         batches += 1
+
+        if training and hasattr(batch_iter, "set_postfix"):
+            batch_iter.set_postfix(loss=f"{total_loss / max(batches, 1):.6f}")
 
     denom = max(batches, 1)
     avg_loss = total_loss / denom
@@ -492,6 +500,48 @@ def _build_schema() -> list[ArgSpec]:
             kwargs={"type": int, "default": 42},
         ),
         ArgSpec(
+            flags=("--cache-dir",),
+            kwargs={
+                "type": str,
+                "default": None,
+                "help": "Directory for defect cache NPZ files. Auto-resolved if omitted.",
+            },
+        ),
+        ArgSpec(
+            flags=("--cache-read",),
+            kwargs={
+                "dest": "cache_read",
+                "action": "store_true",
+                "default": True,
+                "help": "Read defect samples from cache if available (default: on).",
+            },
+        ),
+        ArgSpec(
+            flags=("--no-cache-read",),
+            kwargs={
+                "dest": "cache_read",
+                "action": "store_false",
+                "help": "Disable reading from defect cache.",
+            },
+        ),
+        ArgSpec(
+            flags=("--cache-write",),
+            kwargs={
+                "dest": "cache_write",
+                "action": "store_true",
+                "default": True,
+                "help": "Write generated defect samples to cache (default: on).",
+            },
+        ),
+        ArgSpec(
+            flags=("--no-cache-write",),
+            kwargs={
+                "dest": "cache_write",
+                "action": "store_false",
+                "help": "Disable writing to defect cache.",
+            },
+        ),
+        ArgSpec(
             flags=("--discord",),
             kwargs={
                 "action": "store_true",
@@ -539,6 +589,7 @@ def main() -> None:
 
     args, cfg = parse_and_bootstrap(
         schema=_build_schema(),
+        data_subdir=None,
         description="Unified trainer for reconstruction models.",
     )
 
@@ -617,9 +668,25 @@ def main() -> None:
         if args.dataset_variant == "advanced"
         else create_basic_reconstruction_dataset
     )
+
+    cache_dir: str | None = None
+    if bool(args.cache_read) or bool(args.cache_write):
+        if args.cache_dir:
+            cache_dir = str(Path(args.cache_dir).expanduser().resolve())
+        else:
+            cache_dir = str(cfg.data_dir / f"ShapeNetV2_{args.dataset_variant}_defected")
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"Defect cache: dir={cache_dir} "
+            f"read={bool(args.cache_read)} write={bool(args.cache_write)}"
+        )
+
     dataset = dataset_factory(
-        root=str(cfg.data_dir),
+        root=str(cfg.data_dir / "ShapeNetV2"),
         seed=cfg.seed,
+        defect_cache_npz_dir=cache_dir,
+        defect_cache_read=bool(args.cache_read),
+        defect_cache_write=bool(args.cache_write),
     )
 
     effective_batch_size = int(args.batch_size)
@@ -726,6 +793,8 @@ def main() -> None:
                 training=True,
                 optimizer=optimizer,
                 grad_clip=float(args.grad_clip),
+                epoch=epoch,
+                total_epochs=int(args.epochs),
             )
             with torch.no_grad():
                 val_loss, val_metrics = _run_epoch(

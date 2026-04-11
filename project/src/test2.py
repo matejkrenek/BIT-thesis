@@ -126,6 +126,22 @@ def main() -> None:
     #     show_progress=bool(args.show_progress),
     # )
 
+    ds_cached = _build_dataset(
+        root=cfg.data_dir,
+        seed=int(args.seed),
+        defect_augmentation_count=int(args.defect_augmentation_count),
+        local_dropout_regions=int(args.local_dropout_regions),
+        cache_dir=cache_dir,
+        cache_read=False,
+        cache_write=True,
+    )
+    t_cached = _walk_dataset(
+        ds_cached,
+        desc="Caching to disk",
+        progress_every=int(args.progress_every),
+        show_progress=bool(args.show_progress),
+    )
+
     ds_from_disk = _build_dataset(
         root=cfg.data_dir,
         seed=int(args.seed),
@@ -142,12 +158,13 @@ def main() -> None:
         show_progress=bool(args.show_progress),
     )
 
-    speedup = (t_onthefly / t_disk) if t_disk > 0 else 0.0
+    # speedup = (t_onthefly / t_disk) if t_disk > 0 else 0.0
 
     print("\n[RESULTS]")
-    print(f"- On-the-fly traversal: {_format_seconds(t_onthefly)} ({t_onthefly:.3f}s)")
+    # print(f"- On-the-fly traversal: {_format_seconds(t_onthefly)} ({t_onthefly:.3f}s)")
+    print(f"- Caching to disk: {_format_seconds(t_cached)} ({t_cached:.3f}s)")
     print(f"- Disk-cache traversal: {_format_seconds(t_disk)} ({t_disk:.3f}s)")
-    print(f"- Speedup (on-the-fly / disk): {speedup:.2f}x")
+    # print(f"- Speedup (on-the-fly / disk): {speedup:.2f}x")
 
 
 if __name__ == "__main__":
