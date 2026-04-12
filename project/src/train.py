@@ -266,8 +266,16 @@ def _run_epoch(
     total_fine = 0.0
     batches = 0
 
-    desc = f"Epoch {epoch}/{total_epochs}" if (training and epoch is not None and total_epochs is not None) else None
-    batch_iter = tqdm(loader, desc=desc, unit="batch", leave=False, position=1) if training and desc else loader
+    desc = (
+        f"Epoch {epoch}/{total_epochs}"
+        if (training and epoch is not None and total_epochs is not None)
+        else None
+    )
+    batch_iter = (
+        tqdm(loader, desc=desc, unit="batch", leave=False, position=1)
+        if training and desc
+        else loader
+    )
 
     for originals, padded, lengths in batch_iter:
 
@@ -428,7 +436,7 @@ def _build_schema() -> list[ArgSpec]:
         ),
         ArgSpec(
             flags=("--batch-size",),
-            kwargs={"type": int, "default": 64},
+            kwargs={"type": int, "default": 16},
         ),
         ArgSpec(
             flags=("--learning-rate",),
@@ -607,6 +615,11 @@ def main() -> None:
     enable_data_parallel = bool(args.data_parallel) or auto_data_parallel
 
     model_name = args.model.strip().lower()
+    if model_name in {"pointcleannet", "pointcleannet_outliers"}:
+        raise ValueError(
+            "Model 'pointcleannet[_outliers]' is patch-based. Use src/train_finetune.py "
+            "with --patching-method pointcleannet_radius."
+        )
     model_params = _default_model_params(model_name)
     model_params.update(_json_dict(args.model_params))
 
@@ -674,7 +687,9 @@ def main() -> None:
         if args.cache_dir:
             cache_dir = str(Path(args.cache_dir).expanduser().resolve())
         else:
-            cache_dir = str(cfg.data_dir / f"ShapeNetV2_{args.dataset_variant}_defected")
+            cache_dir = str(
+                cfg.data_dir / f"ShapeNetV2_{args.dataset_variant}_defected"
+            )
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         logger.info(
             f"Defect cache: dir={cache_dir} "

@@ -68,16 +68,38 @@ def _build_adapointr(params: Mapping[str, Any]) -> nn.Module:
     return AdaPoinTr(config=config)
 
 
+def _build_pointcleannet(params: Mapping[str, Any]) -> nn.Module:
+    from models.pointcleannet import PointCleanNet
+
+    return PointCleanNet(**dict(params))
+
+
+def _build_pointcleannet_outliers(params: Mapping[str, Any]) -> nn.Module:
+    from models.pointcleannet import PointCleanNetOutliers
+
+    return PointCleanNetOutliers(**dict(params))
+
+
 _MODEL_BUILDERS = {
     "pcn": _build_pcn,
     "pointr": _build_pointr,
     "adapointr": _build_adapointr,
+    "pointcleannet": _build_pointcleannet,
+    "pointcleannetoutliers": _build_pointcleannet_outliers,
+}
+
+_MODEL_CANONICAL_NAMES = {
+    "pcn": "pcn",
+    "pointr": "pointr",
+    "adapointr": "adapointr",
+    "pointcleannet": "pointcleannet",
+    "pointcleannetoutliers": "pointcleannet_outliers",
 }
 
 
 def available_models() -> list[str]:
     """Return supported model aliases for the factory."""
-    return sorted(_MODEL_BUILDERS.keys())
+    return sorted(_MODEL_CANONICAL_NAMES[key] for key in _MODEL_BUILDERS.keys())
 
 
 def create_model(

@@ -38,12 +38,17 @@ def _save_loss_plot(
     val_patch_losses: list[float],
     val_combined_losses: list[float],
     path: Path,
+    *,
+    pointcleannet_mode: bool = False,
 ) -> None:
     plt.figure(figsize=(9, 5))
     plt.plot(train_losses, label="train", linewidth=2)
-    plt.plot(val_full_losses, label="val_full", linewidth=2)
-    plt.plot(val_patch_losses, label="val_patch", linewidth=2)
-    plt.plot(val_combined_losses, label="val_combined", linewidth=2)
+    if pointcleannet_mode:
+        plt.plot(val_patch_losses, label="val", linewidth=2)
+    else:
+        plt.plot(val_full_losses, label="val_full", linewidth=2)
+        plt.plot(val_patch_losses, label="val_patch", linewidth=2)
+        plt.plot(val_combined_losses, label="val_combined", linewidth=2)
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.grid(True)
@@ -126,6 +131,26 @@ def _default_model_params(model_name: str) -> dict[str, Any]:
                 "cross_attn_combine_style": "concat",
             },
         }
+    if model_name == "pointcleannet":
+        return {
+            "num_points": 500,
+            "num_scales": 1,
+            "output_dim": 3,
+            "use_point_stn": True,
+            "use_feat_stn": True,
+            "sym_op": "max",
+            "point_tuple": 1,
+        }
+    if model_name == "pointcleannet_outliers":
+        return {
+            "num_points": 500,
+            "num_scales": 1,
+            "output_dim": 1,
+            "use_point_stn": True,
+            "use_feat_stn": True,
+            "sym_op": "max",
+            "point_tuple": 1,
+        }
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -136,6 +161,10 @@ def _default_learning_rate(model_name: str) -> float:
         return 5e-5
     if model_name == "adapointr":
         return 5e-5
+    if model_name == "pointcleannet":
+        return 1e-4
+    if model_name == "pointcleannet_outliers":
+        return 1e-4
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -146,6 +175,10 @@ def _default_weight_decay(model_name: str) -> float:
         return 1e-4
     if model_name == "adapointr":
         return 1e-4
+    if model_name == "pointcleannet":
+        return 0.0
+    if model_name == "pointcleannet_outliers":
+        return 0.0
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -195,6 +228,14 @@ def _compute_loss(
             }
             return total, metrics
         total = loss_value
+        return total, {"total": float(total.detach().item())}
+
+    if model_name == "pointcleannet":
+        total = core_model.get_loss(prediction, target)
+        return total, {"total": float(total.detach().item())}
+
+    if model_name == "pointcleannet_outliers":
+        total = core_model.get_outlier_loss(prediction, target)
         return total, {"total": float(total.detach().item())}
 
     raise ValueError(f"Unsupported model '{model_name}'")
@@ -254,6 +295,34 @@ def _collate_full(batch):
 def _collate_patch(batch):
     originals = []
     defecteds = []
+    outlier_labels = []
+
+    def _infer_center_outlier_label(
+        original_patch: torch.Tensor,
+        defected_patch: torch.Tensor,
+    ) -> torch.Tensor:
+        # Patch is typically centered around the queried point; nearest-to-origin
+        # point is used as a robust center proxy.
+        if original_patch.numel() == 0 or defected_patch.numel() == 0:
+            return torch.tensor(0.0, dtype=torch.float32)
+
+        center_idx = int(torch.argmin(torch.norm(defected_patch, dim=1)).item())
+        center = defected_patch[center_idx : center_idx + 1]
+
+        center_to_original = torch.cdist(center, original_patch).min()
+
+        if original_patch.shape[0] <= 1:
+            threshold = torch.tensor(0.03, device=original_patch.device)
+        else:
+            d = torch.cdist(original_patch, original_patch)
+            d.fill_diagonal_(float("inf"))
+            nn = torch.min(d, dim=1).values
+            robust_scale = torch.median(nn)
+            threshold = torch.clamp(robust_scale * 3.0, min=0.03)
+
+        label = (center_to_original > threshold).float()
+        return label.detach().cpu().float()
+
     for item in batch:
         if item is None:
             continue
@@ -268,13 +337,33 @@ def _collate_patch(batch):
             continue
 
         patch_idx = int(torch.randint(0, m, (1,)).item())
-        originals.append(p_orig[patch_idx])
-        defecteds.append(p_def[patch_idx])
+
+        o_patch = p_orig[patch_idx]
+        d_patch = p_def[patch_idx]
+
+        if hasattr(item, "original_valid_counts") and hasattr(
+            item, "defected_valid_counts"
+        ):
+            o_valid = int(item.original_valid_counts[patch_idx])
+            d_valid = int(item.defected_valid_counts[patch_idx])
+            o_patch_valid = o_patch[: max(o_valid, 0)]
+            d_patch_valid = d_patch[: max(d_valid, 0)]
+        else:
+            o_patch_valid = o_patch
+            d_patch_valid = d_patch
+
+        originals.append(o_patch)
+        defecteds.append(d_patch)
+        outlier_labels.append(_infer_center_outlier_label(o_patch_valid, d_patch_valid))
 
     if not originals:
-        return None, None
+        return None, None, None
 
-    return torch.stack(originals, dim=0), torch.stack(defecteds, dim=0)
+    return (
+        torch.stack(originals, dim=0),
+        torch.stack(defecteds, dim=0),
+        torch.stack(outlier_labels, dim=0),
+    )
 
 
 def _next_batch(it, loader):
@@ -316,15 +405,21 @@ def _run_mixed_train_epoch(
         position=1,
     )
     for _ in batch_progress:
-        use_patch = bool(torch.rand(1).item() < patch_probability)
+        use_patch = (
+            True
+            if model_name in {"pointcleannet", "pointcleannet_outliers"}
+            else bool(torch.rand(1).item() < patch_probability)
+        )
 
         if use_patch:
             batch, patch_it = _next_batch(patch_it, patch_loader)
-            originals, defected = batch
+            originals, defected, outlier_labels = batch
             if originals is None or defected is None:
                 continue
             originals = originals.to(device, non_blocking=True)
             defected = defected.to(device, non_blocking=True)
+            if outlier_labels is not None:
+                outlier_labels = outlier_labels.to(device, non_blocking=True)
             patch_steps += 1
         else:
             batch, full_it = _next_batch(full_it, full_loader)
@@ -339,10 +434,18 @@ def _run_mixed_train_epoch(
                 K=originals.shape[1],
                 lengths=lengths,
             )
+            outlier_labels = None
             full_steps += 1
 
         prediction = model(defected)
-        loss, metrics = _compute_loss(model_name, model, prediction, originals)
+        if model_name == "pointcleannet_outliers":
+            if outlier_labels is None:
+                continue
+            target = outlier_labels
+        else:
+            target = originals
+
+        loss, metrics = _compute_loss(model_name, model, prediction, target)
         if not torch.isfinite(loss):
             continue
 
@@ -408,13 +511,21 @@ def _run_eval_patch(
     total = 0.0
     n = 0
     with torch.no_grad():
-        for originals, defected in loader:
+        for originals, defected, outlier_labels in loader:
             if originals is None or defected is None:
                 continue
             originals = originals.to(device, non_blocking=True)
             defected = defected.to(device, non_blocking=True)
+            if outlier_labels is not None:
+                outlier_labels = outlier_labels.to(device, non_blocking=True)
             prediction = model(defected)
-            loss, metrics = _compute_loss(model_name, model, prediction, originals)
+            if model_name == "pointcleannet_outliers":
+                if outlier_labels is None:
+                    continue
+                target = outlier_labels
+            else:
+                target = originals
+            loss, metrics = _compute_loss(model_name, model, prediction, target)
             if not torch.isfinite(loss):
                 continue
             total += float(metrics["total"])
@@ -490,7 +601,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--val-patch-weight", type=float, default=0.5)
 
     parser.add_argument("--patch-size", type=int, default=8192)
-    parser.add_argument("--num-patches", type=int, default=64)
+    parser.add_argument(
+        "--num-patches",
+        type=int,
+        default=0,
+        help="Number of patches per object. Use 0 for automatic selection.",
+    )
     parser.add_argument("--normalize-patches", action="store_true")
     parser.add_argument(
         "--patching-method",
@@ -524,6 +640,29 @@ def main() -> None:
     model_name = args.model.strip().lower()
     model_params = _default_model_params(model_name)
     model_params.update(_json_dict(args.model_params))
+
+    if model_name in {"pointcleannet", "pointcleannet_outliers"}:
+        # PointCleanNet is patch-based by design.
+        args.patch_probability = 1.0
+        args.val_patch_weight = 1.0
+        args.patching_method = "pointcleannet_radius"
+        args.patch_center = "point"
+        if int(args.num_patches) == 64:
+            # Keep backward compatibility with old examples while preventing
+            # under-coverage on very large clouds.
+            args.num_patches = 0
+        required_points = int(model_params.get("num_points", args.patch_size))
+        if int(args.patch_size) != required_points:
+            logger.warning(
+                "Adjusting --patch-size from %d to %d for pointcleannet compatibility",
+                int(args.patch_size),
+                required_points,
+            )
+            args.patch_size = required_points
+
+    effective_num_patches = (
+        None if int(args.num_patches) <= 0 else int(args.num_patches)
+    )
 
     learning_rate = (
         float(args.learning_rate)
@@ -570,7 +709,7 @@ def main() -> None:
         dense_root=str(cfg.data_dir / "ShapeNetV2_dense"),
         split_into_patches=True,
         patch_size=int(args.patch_size),
-        num_patches=int(args.num_patches),
+        num_patches=effective_num_patches,
         normalize_patches=bool(args.normalize_patches),
         patching_method=str(args.patching_method),
         patch_radius=float(args.patch_radius),
@@ -578,6 +717,11 @@ def main() -> None:
         patch_point_count_std=float(args.patch_point_count_std),
         include_full_objects_in_patches=True,
     )
+
+    if effective_num_patches is None:
+        logger.info(
+            "Using automatic patch count selection (num_patches=None) based on object size"
+        )
 
     if len(full_dataset) != len(patch_dataset):
         raise RuntimeError("Full and patch datasets must have equal length")
@@ -590,13 +734,18 @@ def main() -> None:
         logger.warning(
             f"Overfit mode enabled: using {overfit_count} samples for full+patch datasets"
         )
-
-    train_idx, val_idx, _ = _split_indices(
-        len(full_dataset),
-        train_ratio=float(args.train_ratio),
-        val_ratio=float(args.val_ratio),
-        seed=cfg.seed,
-    )
+        train_idx = list(range(len(full_dataset)))
+        val_idx = list(range(len(full_dataset)))
+        logger.warning(
+            "Overfit mode: train and val loaders use the same samples (expected for memorization check)"
+        )
+    else:
+        train_idx, val_idx, _ = _split_indices(
+            len(full_dataset),
+            train_ratio=float(args.train_ratio),
+            val_ratio=float(args.val_ratio),
+            seed=cfg.seed,
+        )
 
     pin_memory = cfg.device.type == "cuda"
     common_loader_kwargs = {
@@ -742,9 +891,12 @@ def main() -> None:
             )
 
             with torch.no_grad():
-                val_full = _run_eval_full(
-                    model_name, model, val_full_loader, cfg.device
-                )
+                if model_name in {"pointcleannet", "pointcleannet_outliers"}:
+                    val_full = 0.0
+                else:
+                    val_full = _run_eval_full(
+                        model_name, model, val_full_loader, cfg.device
+                    )
                 val_patch = _run_eval_patch(
                     model_name, model, val_patch_loader, cfg.device
                 )
@@ -764,6 +916,8 @@ def main() -> None:
                 val_patch_losses,
                 val_combined_losses,
                 loss_curve_path,
+                pointcleannet_mode=model_name
+                in {"pointcleannet", "pointcleannet_outliers"},
             )
 
             elapsed = time.time() - wall_start
