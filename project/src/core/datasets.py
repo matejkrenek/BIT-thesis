@@ -220,12 +220,17 @@ def create_advanced_reconstruction_dataset(
         base_dataset = ShapeNetDataset(root=root)
 
     rng = np.random.RandomState(seed)
+    # Scale bridge geometry based on point cloud density
+    num_bridges_lo = 30 if dense else 6
+    num_bridges_hi = 80 if dense else 18
+    pts_per_bridge_lo = 50 if dense else 8
+    pts_per_bridge_hi = 150 if dense else 24
     stage2_defects = [
         Combined(
             [
                 SurfaceToPlaneBridge(
-                    num_bridges=int(rng.randint(6, 18)),
-                    points_per_bridge=int(rng.randint(8, 24)),
+                    num_bridges=int(rng.randint(num_bridges_lo, num_bridges_hi)),
+                    points_per_bridge=int(rng.randint(pts_per_bridge_lo, pts_per_bridge_hi)),
                     plane_offset_ratio=rng.uniform(0.02, 0.08),
                     axis=1,
                     bottom_band_ratio=rng.uniform(0.2, 0.5),
@@ -239,23 +244,23 @@ def create_advanced_reconstruction_dataset(
                     lateral_jitter=rng.uniform(0.0008, 0.0035),
                     normal_jitter=rng.uniform(0.0005, 0.0025),
                 ),
-                BelowObjectPlane(
-                    num_points=int(rng.randint(500, 2200)),
-                    offset_ratio=rng.uniform(0.02, 0.08),
-                    spread_ratio=rng.uniform(1.0, 2.0),
-                    normal_jitter=rng.uniform(0.0008, 0.004),
-                    plane_jitter=rng.uniform(0.003, 0.02),
-                    axis=1,
-                    center_density_bias=rng.uniform(0.25, 0.75),
-                    edge_sparsity=rng.uniform(0.2, 0.75),
-                    boundary_irregularity=rng.uniform(0.2, 0.7),
-                ),
-                OutlierPoints(
-                    num_points=int(rng.randint(30, 240)),
-                    scale_factor=rng.uniform(1.2, 2.0),
-                    mode="uniform",
-                ),
-                Noise(sigma=rng.uniform(0.001, 0.01)),
+                # BelowObjectPlane(
+                #     num_points=int(rng.randint(500, 2200)),
+                #     offset_ratio=rng.uniform(0.02, 0.08),
+                #     spread_ratio=rng.uniform(1.0, 2.0),
+                #     normal_jitter=rng.uniform(0.0008, 0.004),
+                #     plane_jitter=rng.uniform(0.003, 0.02),
+                #     axis=1,
+                #     center_density_bias=rng.uniform(0.25, 0.75),
+                #     edge_sparsity=rng.uniform(0.2, 0.75),
+                #     boundary_irregularity=rng.uniform(0.2, 0.7),
+                # ),
+                # OutlierPoints(
+                #     num_points=int(rng.randint(30, 240)),
+                #     scale_factor=rng.uniform(1.2, 2.0),
+                #     mode="uniform",
+                # ),
+                Noise(sigma=rng.uniform(0.01, 0.05)),
             ]
         )
         for _ in range(defect_augmentation_count)

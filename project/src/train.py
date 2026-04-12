@@ -436,7 +436,7 @@ def _build_schema() -> list[ArgSpec]:
         ),
         ArgSpec(
             flags=("--batch-size",),
-            kwargs={"type": int, "default": 16},
+            kwargs={"type": int, "default": 32},
         ),
         ArgSpec(
             flags=("--learning-rate",),
@@ -468,7 +468,7 @@ def _build_schema() -> list[ArgSpec]:
         ),
         ArgSpec(
             flags=("--num-workers",),
-            kwargs={"type": int, "default": 4},
+            kwargs={"type": int, "default": 8},
         ),
         ArgSpec(
             flags=("--dataset-variant",),
@@ -705,16 +705,11 @@ def main() -> None:
     )
 
     effective_batch_size = int(args.batch_size)
-    effective_batch_size = _cap_batch_size_for_model(
-        model_name, effective_batch_size, bool(args.overfit)
-    )
+
     if args.overfit:
         overfit_count = min(max(1, int(args.overfit_samples)), len(dataset))
         dataset = Subset(dataset, list(range(overfit_count)))
         effective_batch_size = max(1, effective_batch_size // 2)
-        effective_batch_size = _cap_batch_size_for_model(
-            model_name, effective_batch_size, True
-        )
         logger.warning(
             f"Overfit mode enabled: using {overfit_count} samples, "
             f"batch_size={effective_batch_size}"

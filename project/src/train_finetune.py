@@ -385,25 +385,24 @@ def _collate_patch(batch):
         if m <= 0:
             continue
 
-        patch_idx = int(torch.randint(0, m, (1,)).item())
+        for patch_idx in range(m):
+            o_patch = p_orig[patch_idx]
+            d_patch = p_def[patch_idx]
 
-        o_patch = p_orig[patch_idx]
-        d_patch = p_def[patch_idx]
+            if hasattr(item, "original_valid_counts") and hasattr(
+                item, "defected_valid_counts"
+            ):
+                o_valid = int(item.original_valid_counts[patch_idx])
+                d_valid = int(item.defected_valid_counts[patch_idx])
+                o_patch_valid = o_patch[: max(o_valid, 0)]
+                d_patch_valid = d_patch[: max(d_valid, 0)]
+            else:
+                o_patch_valid = o_patch
+                d_patch_valid = d_patch
 
-        if hasattr(item, "original_valid_counts") and hasattr(
-            item, "defected_valid_counts"
-        ):
-            o_valid = int(item.original_valid_counts[patch_idx])
-            d_valid = int(item.defected_valid_counts[patch_idx])
-            o_patch_valid = o_patch[: max(o_valid, 0)]
-            d_patch_valid = d_patch[: max(d_valid, 0)]
-        else:
-            o_patch_valid = o_patch
-            d_patch_valid = d_patch
-
-        originals.append(o_patch)
-        defecteds.append(d_patch)
-        outlier_labels.append(_infer_center_outlier_label(o_patch_valid, d_patch_valid))
+            originals.append(o_patch)
+            defecteds.append(d_patch)
+            outlier_labels.append(_infer_center_outlier_label(o_patch_valid, d_patch_valid))
 
     if not originals:
         return None, None, None
@@ -555,8 +554,13 @@ def _run_eval_patch(
     model: torch.nn.Module,
     loader: DataLoader,
     device: torch.device,
+    *,
+    force_train_mode: bool = False,
 ) -> float:
-    model.train(False)
+    if force_train_mode:
+        model.train(True)
+    else:
+        model.train(False)
     total = 0.0
     n = 0
     with torch.no_grad():
@@ -601,6 +605,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overfit", action="store_true", default=False)
     parser.add_argument("--overfit-samples", type=int, default=128)
     parser.add_argument(
+        "--overfit-eval-train-mode",
+        action="store_true",
+        default=True,
+        help=(
+            "In overfit mode, run validation in train() mode for models with BatchNorm "
+            "to make memorization diagnostics comparable to train loss."
+        ),
+    )
+    parser.add_argument(
+        "--no-overfit-eval-train-mode",
+        dest="overfit_eval_train_mode",
+        action="store_false",
+    )
+    parser.add_argument(
         "--discord",
         action="store_true",
         default=False,
@@ -634,8 +652,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset-variant", type=str, choices=["basic", "advanced"], default="basic"
     )
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--data-parallel", action="store_true", default=False)
     parser.add_argument(
         "--auto-data-parallel",
@@ -661,18 +679,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr-gamma", type=float, default=0.5)
     parser.add_argument("--grad-clip", type=float, default=1.0)
 
-    parser.add_argument("--train-ratio", type=float, default=0.4)
+    parser.add_argument("--train-ratio", type=float, default=0.8)
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--num-workers", type=int, default=4)
 
     parser.add_argument("--patch-probability", type=float, default=0.5)
     parser.add_argument("--val-patch-weight", type=float, default=0.5)
 
-    parser.add_argument("--patch-size", type=int, default=8192)
+    parser.add_argument("--patch-size", type=int, default=500)
     parser.add_argument(
         "--num-patches",
         type=int,
-        default=0,
+        default=24,
         help="Number of patches per object. Use 0 for automatic selection.",
     )
     parser.add_argument("--normalize-patches", action="store_true")
@@ -700,7 +718,7 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    cfg = bootstrap(seed=int(args.seed))
+    cfg = bootstrap(seed=int(args.seed), data_subdir=None)
 
     if args.num_gpus is not None and args.num_gpus <= 0:
         raise ValueError("--num-gpus must be > 0")
@@ -730,10 +748,6 @@ def main() -> None:
         args.val_patch_weight = 1.0
         args.patching_method = "pointcleannet_radius"
         args.patch_center = "point"
-        if int(args.num_patches) == 64:
-            # Keep backward compatibility with old examples while preventing
-            # under-coverage on very large clouds.
-            args.num_patches = 0
         required_points = int(model_params.get("num_points", args.patch_size))
         if int(args.patch_size) != required_points:
             logger.warning(
@@ -782,11 +796,11 @@ def main() -> None:
     )
 
     full_dataset = dataset_factory(
-        root=str(cfg.data_dir),
+        root=str(cfg.data_dir / "ShapeNetV2"),
         seed=cfg.seed,
     )
     patch_dataset = dataset_factory(
-        root=str(cfg.data_dir),
+        root=str(cfg.data_dir / "ShapeNetV2"),
         seed=cfg.seed,
         dense=bool(args.dense),
         dense_root=str(cfg.data_dir / "ShapeNetV2_dense"),
@@ -799,6 +813,7 @@ def main() -> None:
         patch_center=str(args.patch_center),
         patch_point_count_std=float(args.patch_point_count_std),
         include_full_objects_in_patches=True,
+        defect_cache_npz_dir=str(cfg.data_dir / "ShapeNetV2_basic_defected")
     )
 
     if effective_num_patches is None:
@@ -837,9 +852,11 @@ def main() -> None:
         "pin_memory": pin_memory,
     }
 
+    train_shuffle = not bool(args.overfit)
+
     train_full_loader = DataLoader(
         Subset(full_dataset, train_idx),
-        shuffle=True,
+        shuffle=train_shuffle,
         collate_fn=_collate_full,
         **common_loader_kwargs,
     )
@@ -851,7 +868,7 @@ def main() -> None:
     )
     train_patch_loader = DataLoader(
         Subset(patch_dataset, train_idx),
-        shuffle=True,
+        shuffle=train_shuffle,
         collate_fn=_collate_patch,
         **common_loader_kwargs,
     )
@@ -989,8 +1006,15 @@ def main() -> None:
                     val_full = _run_eval_full(
                         model_name, model, val_full_loader, cfg.device
                     )
+                use_train_mode_eval = bool(args.overfit) and bool(
+                    args.overfit_eval_train_mode
+                )
                 val_patch = _run_eval_patch(
-                    model_name, model, val_patch_loader, cfg.device
+                    model_name,
+                    model,
+                    val_patch_loader,
+                    cfg.device,
+                    force_train_mode=use_train_mode_eval,
                 )
 
             val_combined = (1.0 - float(args.val_patch_weight)) * val_full + float(
