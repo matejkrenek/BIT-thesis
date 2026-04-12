@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,54 @@ from core import (
     save_model_checkpoint,
 )
 from notifications import DiscordNotifier
+
+
+def _extract_cli_value(argv: list[str], option: str) -> str | None:
+    for idx, token in enumerate(argv):
+        if token == option:
+            if idx + 1 < len(argv):
+                return argv[idx + 1]
+            return None
+        if token.startswith(f"{option}="):
+            return token.split("=", 1)[1]
+    return None
+
+
+def _parse_gpu_ids(raw: str) -> list[int]:
+    ids = []
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        value = int(token)
+        if value < 0:
+            raise ValueError("GPU ids must be >= 0")
+        ids.append(value)
+
+    unique_ids = sorted(set(ids))
+    if not unique_ids:
+        raise ValueError("At least one GPU id must be provided")
+    return unique_ids
+
+
+def _preconfigure_cuda_visible_devices(argv: list[str]) -> list[int] | None:
+    raw_gpu_ids = _extract_cli_value(argv, "--gpu-ids")
+    raw_num_gpus = _extract_cli_value(argv, "--num-gpus")
+
+    if raw_gpu_ids:
+        ids = _parse_gpu_ids(raw_gpu_ids)
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(gid) for gid in ids)
+        return ids
+
+    if raw_num_gpus:
+        count = int(raw_num_gpus)
+        if count <= 0:
+            raise ValueError("--num-gpus must be > 0")
+        ids = list(range(count))
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(gid) for gid in ids)
+        return ids
+
+    return None
 
 
 def _save_loss_plot(
@@ -587,6 +636,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--data-parallel", action="store_true", default=False)
+    parser.add_argument(
+        "--auto-data-parallel",
+        action="store_true",
+        default=True,
+        help="Automatically enable DataParallel when multiple GPUs are visible.",
+    )
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        default=None,
+        help="Number of GPUs to use from index 0 (sets CUDA_VISIBLE_DEVICES).",
+    )
+    parser.add_argument(
+        "--gpu-ids",
+        type=str,
+        default=None,
+        help="Comma-separated physical GPU ids (sets CUDA_VISIBLE_DEVICES).",
+    )
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
     parser.add_argument("--lr-step-size", type=int, default=20)
@@ -627,10 +695,25 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    preselected_gpu_ids = _preconfigure_cuda_visible_devices(sys.argv[1:])
+
     parser = _build_parser()
     args = parser.parse_args()
 
     cfg = bootstrap(seed=int(args.seed))
+
+    if args.num_gpus is not None and args.num_gpus <= 0:
+        raise ValueError("--num-gpus must be > 0")
+
+    selected_gpu_ids = preselected_gpu_ids
+    if args.gpu_ids:
+        selected_gpu_ids = _parse_gpu_ids(args.gpu_ids)
+    elif args.num_gpus is not None:
+        selected_gpu_ids = list(range(int(args.num_gpus)))
+
+    visible_gpus = torch.cuda.device_count() if cfg.device.type == "cuda" else 0
+    auto_data_parallel = bool(args.auto_data_parallel) and visible_gpus > 1
+    enable_data_parallel = bool(args.data_parallel) or auto_data_parallel
 
     if not (0.0 <= args.patch_probability <= 1.0):
         raise ValueError("--patch-probability must be in [0,1]")
@@ -782,6 +865,8 @@ def main() -> None:
     model = create_model(
         ModelConfig(name=model_name, params=model_params),
         device=cfg.device,
+        data_parallel=enable_data_parallel,
+        num_gpus=visible_gpus,
     )
 
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -830,6 +915,13 @@ def main() -> None:
 
     logger.info(f"Fine-tune model: {model_name}")
     logger.info(f"Device: {cfg.device}")
+    if selected_gpu_ids is not None:
+        logger.info(f"Requested GPU ids: {selected_gpu_ids}")
+    if os.getenv("CUDA_VISIBLE_DEVICES"):
+        logger.info(f"CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
+    logger.info(f"Visible CUDA GPUs: {visible_gpus}")
+    if auto_data_parallel and not bool(args.data_parallel):
+        logger.info("DataParallel enabled automatically (multiple GPUs selected)")
     logger.info(f"Run dir: {run_dir}")
     logger.info(
         f"Train(full/patch)={len(train_full_loader.dataset)}/{len(train_patch_loader.dataset)} | "
