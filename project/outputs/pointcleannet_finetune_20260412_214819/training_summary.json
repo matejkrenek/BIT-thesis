@@ -1,0 +1,22 @@
+{
+  "model": "pointcleannet",
+  "model_params": {
+    "num_points": 500,
+    "num_scales": 1,
+    "output_dim": 3,
+    "use_point_stn": true,
+    "use_feat_stn": true,
+    "sym_op": "max",
+    "point_tuple": 1
+  },
+  "epochs": 50,
+  "batch_size": 32,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.0,
+  "best_val_combined": 1.4089250756609986,
+  "patch_probability": 1.0,
+  "val_patch_weight": 1.0,
+  "run_dir": "/zfs-pool/home/xkrenem00/outputs/pointcleannet_finetune_20260412_214819",
+  "best_checkpoint": "/zfs-pool/home/xkrenem00/outputs/pointcleannet_finetune_20260412_214819/checkpoints/best_finetune.pt",
+  "loss_curve": "/zfs-pool/home/xkrenem00/outputs/pointcleannet_finetune_20260412_214819/loss_curve.png"
+}

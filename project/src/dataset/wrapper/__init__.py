@@ -4,3 +4,6 @@ from .augment import AugmentWrapperDataset
 from .patch import PatchWrapperDataset
 from .normalize import NormalizeWrapperDataset
 from .staged_augment import StagedAugmentWrapperDataset
+from .pointcleannet_compat import (
+    PointcloudPatchDataset,
+)

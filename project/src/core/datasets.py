@@ -228,39 +228,41 @@ def create_advanced_reconstruction_dataset(
     stage2_defects = [
         Combined(
             [
-                SurfaceToPlaneBridge(
-                    num_bridges=int(rng.randint(num_bridges_lo, num_bridges_hi)),
-                    points_per_bridge=int(rng.randint(pts_per_bridge_lo, pts_per_bridge_hi)),
-                    plane_offset_ratio=rng.uniform(0.02, 0.08),
-                    axis=1,
-                    bottom_band_ratio=rng.uniform(0.2, 0.5),
-                    top_band_ratio=rng.uniform(0.15, 0.35),
-                    side_band_ratio=rng.uniform(0.15, 0.35),
-                    bottom_bridge_fraction=rng.uniform(0.1, 0.35),
-                    top_bridge_fraction=rng.uniform(0.2, 0.4),
-                    side_bridge_fraction=rng.uniform(0.35, 0.6),
-                    diagonal_strength_min=rng.uniform(0.1, 0.25),
-                    diagonal_strength_max=rng.uniform(0.4, 0.75),
-                    lateral_jitter=rng.uniform(0.0008, 0.0035),
-                    normal_jitter=rng.uniform(0.0005, 0.0025),
-                ),
-                # BelowObjectPlane(
-                #     num_points=int(rng.randint(500, 2200)),
-                #     offset_ratio=rng.uniform(0.02, 0.08),
-                #     spread_ratio=rng.uniform(1.0, 2.0),
-                #     normal_jitter=rng.uniform(0.0008, 0.004),
-                #     plane_jitter=rng.uniform(0.003, 0.02),
+                # SurfaceToPlaneBridge(
+                #     num_bridges=int(rng.randint(num_bridges_lo, num_bridges_hi)),
+                #     points_per_bridge=int(
+                #         rng.randint(pts_per_bridge_lo, pts_per_bridge_hi)
+                #     ),
+                #     plane_offset_ratio=rng.uniform(0.02, 0.08),
                 #     axis=1,
-                #     center_density_bias=rng.uniform(0.25, 0.75),
-                #     edge_sparsity=rng.uniform(0.2, 0.75),
-                #     boundary_irregularity=rng.uniform(0.2, 0.7),
+                #     bottom_band_ratio=rng.uniform(0.2, 0.5),
+                #     top_band_ratio=rng.uniform(0.15, 0.35),
+                #     side_band_ratio=rng.uniform(0.15, 0.35),
+                #     bottom_bridge_fraction=rng.uniform(0.1, 0.35),
+                #     top_bridge_fraction=rng.uniform(0.2, 0.4),
+                #     side_bridge_fraction=rng.uniform(0.35, 0.6),
+                #     diagonal_strength_min=rng.uniform(0.1, 0.25),
+                #     diagonal_strength_max=rng.uniform(0.4, 0.75),
+                #     lateral_jitter=rng.uniform(0.0008, 0.0035),
+                #     normal_jitter=rng.uniform(0.0005, 0.0025),
                 # ),
-                # OutlierPoints(
-                #     num_points=int(rng.randint(30, 240)),
-                #     scale_factor=rng.uniform(1.2, 2.0),
-                #     mode="uniform",
-                # ),
-                Noise(sigma=rng.uniform(0.01, 0.05)),
+                BelowObjectPlane(
+                    num_points=int(rng.randint(500, 2200)),
+                    offset_ratio=rng.uniform(0.02, 0.08),
+                    spread_ratio=rng.uniform(1.0, 2.0),
+                    normal_jitter=rng.uniform(0.0008, 0.004),
+                    plane_jitter=rng.uniform(0.003, 0.02),
+                    axis=1,
+                    center_density_bias=rng.uniform(0.25, 0.75),
+                    edge_sparsity=rng.uniform(0.2, 0.75),
+                    boundary_irregularity=rng.uniform(0.2, 0.7),
+                ),
+                OutlierPoints(
+                    num_points=int(rng.randint(30, 240)),
+                    scale_factor=rng.uniform(1.2, 2.0),
+                    mode="uniform",
+                ),
+                Noise(sigma=0.01),
             ]
         )
         for _ in range(defect_augmentation_count)
