@@ -113,6 +113,21 @@ def _default_model_params(model_name: str) -> dict[str, Any]:
                 "cross_attn_combine_style": "concat",
             },
         }
+    if model_name == "pointmae_completion":
+        return {
+            "trans_dim": 384,
+            "num_pred": 16384,
+            "num_query": 224,
+            "num_group": 128,
+            "group_size": 32,
+            "encoder_dims": 384,
+            "depth": 8,
+            "num_heads": 6,
+            "decoder_depth": 4,
+            "mlp_ratio": 4.0,
+            "dropout": 0.0,
+            "pointmae_ckpt": None,
+        }
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -122,6 +137,8 @@ def _default_learning_rate(model_name: str) -> float:
     if model_name == "pointr":
         return 3e-4
     if model_name == "adapointr":
+        return 3e-4
+    if model_name == "pointmae_completion":
         return 3e-4
     raise ValueError(f"Unsupported model '{model_name}'")
 
@@ -133,6 +150,8 @@ def _default_weight_decay(model_name: str) -> float:
         return 1e-4
     if model_name == "adapointr":
         return 1e-4
+    if model_name == "pointmae_completion":
+        return 1e-4
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -140,6 +159,8 @@ def _cap_batch_size_for_model(model_name: str, batch_size: int, overfit: bool) -
     if model_name == "adapointr":
         # AdaPoinTr decoder-attention is memory heavy on 8GB GPUs.
         return min(batch_size, 2 if overfit else 4)
+    if model_name == "pointmae_completion":
+        return min(batch_size, 4 if overfit else 8)
     return batch_size
 
 
@@ -230,6 +251,25 @@ def _compute_loss(
             pieces = [item for item in loss_value if torch.is_tensor(item)]
             if not pieces:
                 raise ValueError("AdaPoinTr loss tuple did not contain tensor items")
+            total = sum(pieces)
+            metrics = {
+                "total": float(total.detach().item()),
+                "coarse": float(pieces[0].detach().item()),
+                "fine": float(pieces[1].detach().item()) if len(pieces) > 1 else 0.0,
+            }
+            return total, metrics
+
+        total = loss_value
+        return total, {"total": float(total.detach().item())}
+
+    if model_name == "pointmae_completion":
+        loss_value = core_model.get_loss(prediction, target)
+        if isinstance(loss_value, (tuple, list)):
+            pieces = [item for item in loss_value if torch.is_tensor(item)]
+            if not pieces:
+                raise ValueError(
+                    "PointMAECompletion loss tuple did not contain tensor items"
+                )
             total = sum(pieces)
             metrics = {
                 "total": float(total.detach().item()),
@@ -480,6 +520,48 @@ def _build_schema() -> list[ArgSpec]:
             },
         ),
         ArgSpec(
+            flags=("--target-dataset",),
+            kwargs={
+                "type": str,
+                "choices": ["shapenet", "modelnet"],
+                "default": "shapenet",
+                "help": "Base dataset used for reconstruction training.",
+            },
+        ),
+        ArgSpec(
+            flags=("--modelnet-root",),
+            kwargs={
+                "type": str,
+                "default": None,
+                "help": "Path to ModelNet root (expects raw/ and processed/).",
+            },
+        ),
+        ArgSpec(
+            flags=("--finetune-checkpoint",),
+            kwargs={
+                "type": str,
+                "default": None,
+                "help": "Checkpoint used only to initialize model weights for finetuning.",
+            },
+        ),
+        ArgSpec(
+            flags=("--finetune-strict",),
+            kwargs={
+                "dest": "finetune_strict",
+                "action": "store_true",
+                "default": True,
+                "help": "Load finetune checkpoint with strict key matching (default: on).",
+            },
+        ),
+        ArgSpec(
+            flags=("--no-finetune-strict",),
+            kwargs={
+                "dest": "finetune_strict",
+                "action": "store_false",
+                "help": "Allow non-strict key matching when loading finetune checkpoint.",
+            },
+        ),
+        ArgSpec(
             flags=("--data-parallel",),
             kwargs={
                 "action": "store_true",
@@ -594,6 +676,7 @@ def _build_schema() -> list[ArgSpec]:
 
 def main() -> None:
     preselected_gpu_ids = _preconfigure_cuda_visible_devices(sys.argv[1:])
+    epochs_cli_provided = _extract_cli_value(sys.argv[1:], "--epochs") is not None
 
     args, cfg = parse_and_bootstrap(
         schema=_build_schema(),
@@ -615,11 +698,29 @@ def main() -> None:
     enable_data_parallel = bool(args.data_parallel) or auto_data_parallel
 
     model_name = args.model.strip().lower()
+    target_dataset = args.target_dataset.strip().lower()
     if model_name in {"pointcleannet", "pointcleannet_outliers"}:
         raise ValueError(
             "Model 'pointcleannet[_outliers]' is patch-based. Use src/train_finetune.py "
             "with --patching-method pointcleannet_radius."
         )
+    if args.resume_checkpoint and args.finetune_checkpoint:
+        raise ValueError(
+            "Use either --resume-checkpoint or --finetune-checkpoint, not both."
+        )
+
+    effective_epochs = int(args.epochs)
+    if (
+        target_dataset == "modelnet"
+        and not epochs_cli_provided
+        and effective_epochs >= 100
+    ):
+        effective_epochs = 20
+        logger.info(
+            "ModelNet finetune detected: using shorter default --epochs=20 "
+            "(override with explicit --epochs)."
+        )
+
     model_params = _default_model_params(model_name)
     model_params.update(_json_dict(args.model_params))
 
@@ -651,6 +752,7 @@ def main() -> None:
     summary_path = run_dir / "training_summary.json"
 
     logger.info(f"Training model: {model_name}")
+    logger.info(f"Target dataset: {target_dataset}")
     logger.info(f"Device: {cfg.device}")
     logger.info(f"Output run dir: {run_dir}")
     if selected_gpu_ids is not None:
@@ -687,8 +789,9 @@ def main() -> None:
         if args.cache_dir:
             cache_dir = str(Path(args.cache_dir).expanduser().resolve())
         else:
+            dataset_tag = "ShapeNetV2" if target_dataset == "shapenet" else "ModelNet40"
             cache_dir = str(
-                cfg.data_dir / f"ShapeNetV2_{args.dataset_variant}_defected"
+                cfg.data_dir / f"{dataset_tag}_{args.dataset_variant}_defected"
             )
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         logger.info(
@@ -696,13 +799,37 @@ def main() -> None:
             f"read={bool(args.cache_read)} write={bool(args.cache_write)}"
         )
 
-    dataset = dataset_factory(
-        root=str(cfg.data_dir / "ShapeNetV2"),
-        seed=cfg.seed,
-        defect_cache_npz_dir=cache_dir,
-        defect_cache_read=bool(args.cache_read),
-        defect_cache_write=bool(args.cache_write),
-    )
+    if target_dataset == "modelnet":
+        from dataset.modelnet import ModelNetDataset
+
+        modelnet_root = (
+            Path(args.modelnet_root).expanduser().resolve()
+            if args.modelnet_root
+            else (cfg.data_dir / "ModelNet40")
+        )
+        if not modelnet_root.exists():
+            fallback_root = cfg.data_dir / "ModelNet40"
+            if fallback_root.exists():
+                modelnet_root = fallback_root
+        logger.info(f"ModelNet root: {modelnet_root}")
+
+        base_dataset = ModelNetDataset(root=str(modelnet_root))
+        dataset = dataset_factory(
+            base_dataset=base_dataset,
+            root=None,
+            seed=cfg.seed,
+            defect_cache_npz_dir=cache_dir,
+            defect_cache_read=bool(args.cache_read),
+            defect_cache_write=bool(args.cache_write),
+        )
+    else:
+        dataset = dataset_factory(
+            root=str(cfg.data_dir / "ShapeNetV2"),
+            seed=cfg.seed,
+            defect_cache_npz_dir=cache_dir,
+            defect_cache_read=bool(args.cache_read),
+            defect_cache_write=bool(args.cache_write),
+        )
 
     effective_batch_size = int(args.batch_size)
 
@@ -745,6 +872,19 @@ def main() -> None:
 
     start_epoch = 1
     best_val_loss = float("inf")
+    if args.finetune_checkpoint:
+        load_model_checkpoint(
+            checkpoint_path=Path(args.finetune_checkpoint),
+            model=model,
+            map_location=cfg.device,
+            strict=bool(args.finetune_strict),
+            weights_only=True,
+        )
+        logger.info(
+            "Loaded finetune initialization checkpoint: "
+            f"{args.finetune_checkpoint} (strict={bool(args.finetune_strict)})"
+        )
+
     if args.resume_checkpoint:
         loaded = load_model_checkpoint(
             checkpoint_path=Path(args.resume_checkpoint),
@@ -772,13 +912,13 @@ def main() -> None:
 
     logger.info(
         f"Train size={len(train_loader.dataset)}, Val size={len(val_loader.dataset)}, "
-        f"epochs={args.epochs}, lr={learning_rate}, wd={weight_decay}"
+        f"epochs={effective_epochs}, lr={learning_rate}, wd={weight_decay}"
     )
 
     if notifier is not None:
         try:
             notifier.send_training_start(
-                total_epochs=int(args.epochs),
+                total_epochs=effective_epochs,
                 batch_size=effective_batch_size,
                 train_size=len(train_loader.dataset),
                 val_size=len(val_loader.dataset),
@@ -791,7 +931,7 @@ def main() -> None:
 
     wall_start = time.time()
     progress = tqdm(
-        range(start_epoch, int(args.epochs) + 1), desc="Training", unit="epoch"
+        range(start_epoch, effective_epochs + 1), desc="Training", unit="epoch"
     )
     try:
         for epoch in progress:
@@ -804,7 +944,7 @@ def main() -> None:
                 optimizer=optimizer,
                 grad_clip=float(args.grad_clip),
                 epoch=epoch,
-                total_epochs=int(args.epochs),
+                total_epochs=effective_epochs,
             )
             with torch.no_grad():
                 val_loss, val_metrics = _run_epoch(
@@ -823,7 +963,7 @@ def main() -> None:
 
             elapsed = time.time() - wall_start
             epochs_done = epoch - start_epoch + 1
-            epochs_left = int(args.epochs) - epoch
+            epochs_left = effective_epochs - epoch
             avg_epoch_time = elapsed / max(epochs_done, 1)
             eta_seconds = int(avg_epoch_time * max(epochs_left, 0))
 
@@ -886,7 +1026,7 @@ def main() -> None:
                 try:
                     notifier.send_training_progress(
                         epoch=epoch,
-                        total_epochs=int(args.epochs),
+                        total_epochs=effective_epochs,
                         current_loss=val_loss,
                         best_loss=best_val_loss,
                         learning_rate=scheduler.get_last_lr()[0],
@@ -918,8 +1058,9 @@ def main() -> None:
     total_seconds = int(time.time() - wall_start)
     summary = {
         "model": model_name,
+        "target_dataset": target_dataset,
         "model_params": model_params,
-        "epochs": int(args.epochs),
+        "epochs": effective_epochs,
         "batch_size": effective_batch_size,
         "learning_rate": learning_rate,
         "weight_decay": weight_decay,
@@ -943,7 +1084,7 @@ def main() -> None:
     if notifier is not None:
         try:
             notifier.send_training_completion(
-                total_epochs=int(args.epochs),
+                total_epochs=effective_epochs,
                 final_loss=val_losses[-1] if val_losses else float("nan"),
                 best_loss=best_val_loss,
                 training_time=(

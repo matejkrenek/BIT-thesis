@@ -345,5 +345,4 @@ class PointcloudPatchDataset(data.Dataset):
                 patch_feats = patch_feats + (patch_clean_points,)
             elif pfeat == "original":
                 patch_feats = patch_feats + (original_center, patch_radius_scalar)
-
         return (patch_pts,) + patch_feats + (trans,)

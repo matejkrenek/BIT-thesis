@@ -131,11 +131,11 @@ def create_basic_reconstruction_dataset(
     defects = [
         Combined(
             [
-                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.35)),
+                # LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.35)),
                 LocalDropout(
-                    radius=rng.uniform(0.01, 0.06),
-                    regions=local_dropout_regions,
-                    dropout_rate=rng.uniform(0.45, 0.9),
+                    radius=rng.uniform(0.01, 0.1),
+                    regions=20,
+                    dropout_rate=rng.uniform(0.7, 0.9),
                 ),
             ]
         )
@@ -228,24 +228,24 @@ def create_advanced_reconstruction_dataset(
     stage2_defects = [
         Combined(
             [
-                # SurfaceToPlaneBridge(
-                #     num_bridges=int(rng.randint(num_bridges_lo, num_bridges_hi)),
-                #     points_per_bridge=int(
-                #         rng.randint(pts_per_bridge_lo, pts_per_bridge_hi)
-                #     ),
-                #     plane_offset_ratio=rng.uniform(0.02, 0.08),
-                #     axis=1,
-                #     bottom_band_ratio=rng.uniform(0.2, 0.5),
-                #     top_band_ratio=rng.uniform(0.15, 0.35),
-                #     side_band_ratio=rng.uniform(0.15, 0.35),
-                #     bottom_bridge_fraction=rng.uniform(0.1, 0.35),
-                #     top_bridge_fraction=rng.uniform(0.2, 0.4),
-                #     side_bridge_fraction=rng.uniform(0.35, 0.6),
-                #     diagonal_strength_min=rng.uniform(0.1, 0.25),
-                #     diagonal_strength_max=rng.uniform(0.4, 0.75),
-                #     lateral_jitter=rng.uniform(0.0008, 0.0035),
-                #     normal_jitter=rng.uniform(0.0005, 0.0025),
-                # ),
+                SurfaceToPlaneBridge(
+                    num_bridges=int(rng.randint(num_bridges_lo, num_bridges_hi)),
+                    points_per_bridge=int(
+                        rng.randint(pts_per_bridge_lo, pts_per_bridge_hi)
+                    ),
+                    plane_offset_ratio=rng.uniform(0.02, 0.08),
+                    axis=1,
+                    bottom_band_ratio=rng.uniform(0.2, 0.5),
+                    top_band_ratio=rng.uniform(0.15, 0.35),
+                    side_band_ratio=rng.uniform(0.15, 0.35),
+                    bottom_bridge_fraction=rng.uniform(0.1, 0.35),
+                    top_bridge_fraction=rng.uniform(0.2, 0.4),
+                    side_bridge_fraction=rng.uniform(0.35, 0.6),
+                    diagonal_strength_min=rng.uniform(0.1, 0.25),
+                    diagonal_strength_max=rng.uniform(0.4, 0.75),
+                    lateral_jitter=rng.uniform(0.0008, 0.0035),
+                    normal_jitter=rng.uniform(0.0005, 0.0025),
+                ),
                 BelowObjectPlane(
                     num_points=int(rng.randint(500, 2200)),
                     offset_ratio=rng.uniform(0.02, 0.08),
