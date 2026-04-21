@@ -1,6 +1,6 @@
 from .base import BaseDownloader
 import kagglehub
-from core import logger
+from core.logger import logger
 import os
 import shutil
 

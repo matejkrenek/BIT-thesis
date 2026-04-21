@@ -11,7 +11,7 @@ import torch_geometric.transforms as T
 from torchvision.io import read_image
 
 from dataset.downloader import ZipUrlDownloader
-from core import logger
+from core.logger import logger
 from pathlib import Path
 import shutil
 
@@ -40,7 +40,7 @@ class CO3DDataset(InMemoryDataset):
         "car": "https://scontent.xx.fbcdn.net/m1/v/t6/An-fxZJgr0X0iIWhTjt-LD_MqBxf0SVGno1ggNYwEkB9zq6nMuQaysGo2nO_T5hvoRX_gDkTEBqSD7GuyGY.zip?_nc_gid&ccb=10-5&oh=00_Afu2YavIg-8NKnaIPa9KZ9WRu56nC8X32Udlc5C6ASc5lw&oe=69A7E06F&_nc_sid=ba4296",
         "carrot": "https://scontent.xx.fbcdn.net/m1/v/t6/An_U98H5kASgvgePfSCU4dt_uMwydiNuX8AX6mXWZpkEPt85PtzMhNvNzFbuk2L9sszj07GglvTXAtUTHe4.zip?_nc_gid&ccb=10-5&oh=00_AftIiYT6M3xLCcrxZnl_pBQYvq0k3vC-DKVjW6B0ItgvTw&oe=69A7E5E2&_nc_sid=ba4296",
         "cellphone": "https://scontent.xx.fbcdn.net/m1/v/t6/An_rwJqQRlwsSV509Iy6uzJuinXA-R78DnrrSl_H4ufdgom5X3E8KLut7xXh-gqOVD-VzomVsOqRbq5A9N0.zip?_nc_gid&ccb=10-5&oh=00_AftsbjFzuhGywl3H_SoeYALVU-32oS2AZD4jgQZe6U4S2A&oe=69A7C31A&_nc_sid=ba4296",
-        "chair": "https://scontent.xx.fbcdn.net/m1/v/t6/An-kqzDg5pX2UxZbhRA4Hd4d8yWaMzG8C9FauxeYN7jQOz5Tuhg5znQKpVo0VCDnFD7Y1XnnPrZXXySNofc.zip?_nc_gid&ccb=10-5&oh=00_Afv5RlE21jjijy7-4B3ZjwuMCVSxZrCyDrXlCMjUJtLybQ&oe=69A7D73E&_nc_sid=ba4296",
+        "chair": "https://scontent.fprg4-1.fna.fbcdn.net/m1/v/t6/An-kqzDg5pX2UxZbhRA4Hd4d8yWaMzG8C9FauxeYN7jQOz5Tuhg5znQKpVo0VCDnFD7Y1XnnPrZXXySNofc.zip?_nc_gid=3MWePGlyfvnsv3o9qdxRcw&_nc_oc=AdrFLHmXEca8x5MF1nMI22kmWzWpJSUURjnrVwX7b5Yy8rGhnwLtmrb9jwevrf-3Ws0&ccb=10-5&oh=00_Af3hI5txA78_M319TqhtGT3X8yuqtvt9kzhHk8olohx-uA&oe=6A0EE47E&_nc_sid=ba4296",
         "couch": "https://scontent.xx.fbcdn.net/m1/v/t6/An-Y531FBt1_Dmjmdml0fAxWVznPEZ4KhVulHN4RqyLIqKI4Fldv1Q2EBkOSRtG8co5l0O9EVtYm894u1-w.zip?_nc_gid&ccb=10-5&oh=00_AfsXTPS38wfm25gqL39fkGNpnIgXZYoHLH0iiwCc6_qj5A&oe=69A7B747&_nc_sid=ba4296",
         "cup": "https://scontent.xx.fbcdn.net/m1/v/t6/An_IG6IFIimI4F3KOJrIJt8loZF8iELYHDcBrNBxp686y8YTuPeet6hQ_os5K0uI3GnbXQRinE2Y9-304BU.zip?_nc_gid&ccb=10-5&oh=00_AfuHUzL3ps8cdZ2j-Pwqw6ThrYpW6A4e5CXA736Fr9RUiA&oe=69A7DA09&_nc_sid=ba4296",
         "donut": "https://scontent.xx.fbcdn.net/m1/v/t6/An8LItMvwmV6Mg5ucjsR8J8ZAW6dNRHzKs3AS6wTX9dhCAPJtPRdxs0E1itjQENEsp404WVyfPJJqW_W2cw.zip?_nc_gid&ccb=10-5&oh=00_Afu7ubxxrPzkxTlXWH0SgSpVOwp2RqR7JARtnOyEaLO4bg&oe=69A7BD01&_nc_sid=ba4296",
@@ -71,7 +71,7 @@ class CO3DDataset(InMemoryDataset):
         "toyplane": "https://scontent.xx.fbcdn.net/m1/v/t6/An-nluyYsQNpA5H6qo7bDSHX4mtpmie0CCQHnPq7-asIpr6p28VDmHWSekAis6tSNPGaiI2Dx7wl7E6D8CQ.zip?_nc_gid&ccb=10-5&oh=00_AftRRLXsD6vFl5xxdK44_W-S2YsNuBf1DDrduTOxowdPyg&oe=69A7BEC9&_nc_sid=ba4296",
         "toytrain": "https://scontent.xx.fbcdn.net/m1/v/t6/An_GnWcAoqhXO6-JvJzgMzsy_ZN1pMZaUlY-K9Yvq95GZDQRZNkXNrco271lErLDAX6IqLexmLNSOjcJAdE.zip?_nc_gid&ccb=10-5&oh=00_AftcNYzbf0CiwEAKZvCD5hpnPFmhMm5cOE2zUvKwLuHcQg&oe=69A7B385&_nc_sid=ba4296",
         "toytruck": "https://scontent.xx.fbcdn.net/m1/v/t6/An_W7VsuDvxZUS0Ms7gMEEhxTJjg6wlrMWIGA2BfNqpTQpSq7VbKAF5eriJQ43_9uG9KqztuYNqyAMwo2FI.zip?_nc_gid&ccb=10-5&oh=00_AftFi_tGisLOrJUd9qiyzxrdUeqiI0TliwgSB2ddSOdBEQ&oe=69A7C7E8&_nc_sid=ba4296",
-        "tv": "https://scontent.xx.fbcdn.net/m1/v/t6/An_Dwy0JQM-ff-imtBd_tm1ysnkYvnLVobheO_amBsmzoeU_bmH3l9NQ9F3on4YArNSWXWpccpeIvNJg3iI.zip?_nc_gid&ccb=10-5&oh=00_Afu13VVmdVSan_5n2W_qij0f69K_9kecuQwgF8Exk7SG3A&oe=69A7D7CA&_nc_sid=ba4296",
+        "tv": "https://scontent.fprg4-1.fna.fbcdn.net/m1/v/t6/An_Dwy0JQM-ff-imtBd_tm1ysnkYvnLVobheO_amBsmzoeU_bmH3l9NQ9F3on4YArNSWXWpccpeIvNJg3iI.zip?_nc_gid=3MWePGlyfvnsv3o9qdxRcw&_nc_oc=AdoMDj4PhYRH81usB7V-VwyoaZpt3wP7EyW_vSdkDHTMbcrCzaaY-GmCCyCZIkhl9JA&ccb=10-5&oh=00_Af3f6h09aoNz-eaSRY1LcDADAqIYd4L65CHq0otiV90-eQ&oe=6A0EE50A&_nc_sid=ba4296",
         "umbrella": "https://scontent.xx.fbcdn.net/m1/v/t6/An_fbQlYbVAgMOFjTOY6Evj7IJ2VO6WmCvdX4pqIaHGGkXnJlFDzbg_Il7B_UbrlCwdrYcO2fmIDOnK0jsU.zip?_nc_gid&ccb=10-5&oh=00_Afsd4UyJ8-cqWkYKqxX5kTIFMAK2IPbigcZvGbb8z7-ABw&oe=69A7BF32&_nc_sid=ba4296",
         "vase": "https://scontent.xx.fbcdn.net/m1/v/t6/An9qdS5KidE_caUH0nPX5StCH_u9Xwt2wH3xU6om0p6ZaYK3JAja80iMRG2LHsKCZkm1ul8YoA4KG3LuqWo.zip?_nc_gid&ccb=10-5&oh=00_AfsBRijMVAMw4ecaqg9Z5zZi3QqXpS3lovWzK4Ac3-9ZLw&oe=69A7C52C&_nc_sid=ba4296",
         "wineglass": "https://scontent.xx.fbcdn.net/m1/v/t6/An-D7nh5JqEI-3bEtEfyAdCmryr3Zc1mQsd_sFxuIQ6g1E_sYuDerfwJB7j7ZBGa7Wa-I_Uzn3yzaaNPbQ8.zip?_nc_gid&ccb=10-5&oh=00_Afvy-KbW1jUCITIoMOU5PJNgHYu9Ub-sWGCvvcmcKdJHqw&oe=69A7E645&_nc_sid=ba4296",

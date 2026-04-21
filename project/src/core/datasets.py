@@ -131,10 +131,10 @@ def create_basic_reconstruction_dataset(
     defects = [
         Combined(
             [
-                # LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.35)),
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.15)),
                 LocalDropout(
                     radius=rng.uniform(0.01, 0.1),
-                    regions=20,
+                    regions=local_dropout_regions,
                     dropout_rate=rng.uniform(0.7, 0.9),
                 ),
             ]
@@ -221,10 +221,10 @@ def create_advanced_reconstruction_dataset(
 
     rng = np.random.RandomState(seed)
     # Scale bridge geometry based on point cloud density
-    num_bridges_lo = 30 if dense else 6
-    num_bridges_hi = 80 if dense else 18
-    pts_per_bridge_lo = 50 if dense else 8
-    pts_per_bridge_hi = 150 if dense else 24
+    num_bridges_lo = 6 if dense else 6
+    num_bridges_hi = 18 if dense else 18
+    pts_per_bridge_lo = 8 if dense else 8
+    pts_per_bridge_hi = 24 if dense else 24
     stage2_defects = [
         Combined(
             [
