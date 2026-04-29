@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import pickle
+import warnings
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -218,6 +220,7 @@ def load_model_checkpoint(
     strict: bool = True,
     model_key: str = "model_state",
     weights_only: bool = True,
+    allow_unsafe_fallback: bool = False,
 ) -> dict[str, Any]:
     """Load model state and optional optimizer/scheduler states from checkpoint."""
     checkpoint_path = Path(checkpoint_path)
@@ -226,6 +229,21 @@ def load_model_checkpoint(
             checkpoint_path,
             map_location=map_location,
             weights_only=weights_only,
+        )
+    except pickle.UnpicklingError as exc:
+        if not (weights_only and allow_unsafe_fallback):
+            raise
+        warnings.warn(
+            "Safe checkpoint load failed with weights_only=True. "
+            "Retrying with weights_only=False, which can execute arbitrary code. "
+            f"Use only for trusted checkpoint files: {checkpoint_path}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location=map_location,
+            weights_only=False,
         )
     except TypeError:
         # Backward compatibility for PyTorch builds without weights_only support.
@@ -266,6 +284,7 @@ def create_and_load_model(
     strict: bool = True,
     map_location: str | torch.device | None = None,
     weights_only: bool = True,
+    allow_unsafe_fallback: bool = False,
 ) -> tuple[nn.Module, dict[str, Any]]:
     """Create a model from config and immediately load checkpoint state."""
     model = create_model(
@@ -280,6 +299,7 @@ def create_and_load_model(
         map_location=map_location if map_location is not None else device,
         strict=strict,
         weights_only=weights_only,
+        allow_unsafe_fallback=allow_unsafe_fallback,
     )
     return model, checkpoint
 

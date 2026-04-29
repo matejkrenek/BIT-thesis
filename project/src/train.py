@@ -879,6 +879,7 @@ def main() -> None:
             map_location=cfg.device,
             strict=bool(args.finetune_strict),
             weights_only=True,
+            allow_unsafe_fallback=True,
         )
         logger.info(
             "Loaded finetune initialization checkpoint: "
@@ -893,7 +894,7 @@ def main() -> None:
             scheduler=scheduler,
             map_location=cfg.device,
             strict=True,
-            weights_only=False,
+            weights_only=True,
         )
         start_epoch = int(loaded.get("epoch", 0)) + 1
         metrics = (
