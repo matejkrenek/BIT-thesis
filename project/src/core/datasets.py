@@ -131,7 +131,7 @@ def create_basic_reconstruction_dataset(
     defects = [
         Combined(
             [
-                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.15)),
+                LargeMissingRegion(removal_fraction=rng.uniform(0.1, 0.3)),
                 LocalDropout(
                     radius=rng.uniform(0.01, 0.1),
                     regions=local_dropout_regions,
