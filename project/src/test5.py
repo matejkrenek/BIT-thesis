@@ -44,19 +44,19 @@ def main():
     print(f"Saving point cloud to {ply_path}")
     pointcloud.export(str(ply_path))
 
-    # --- Visualize with polyscope ---
-    print("Visualizing point cloud with polyscope...")
-    ps.init()
-    pts = np.asarray(pointcloud.vertices)
-    if hasattr(pointcloud, "colors") and pointcloud.colors is not None:
-        colors = np.asarray(pointcloud.colors)
-        ps.register_point_cloud("DUSt3R Output", pts, enabled=True)
-        ps.get_point_cloud("DUSt3R Output").add_color_quantity(
-            "rgb", colors, defined_on="vertex", enabled=True
-        )
-    else:
-        ps.register_point_cloud("DUSt3R Output", pts, enabled=True)
-    ps.show()
+    # # --- Visualize with polyscope ---
+    # print("Visualizing point cloud with polyscope...")
+    # ps.init()
+    # pts = np.asarray(pointcloud.vertices)
+    # if hasattr(pointcloud, "colors") and pointcloud.colors is not None:
+    #     colors = np.asarray(pointcloud.colors)
+    #     ps.register_point_cloud("DUSt3R Output", pts, enabled=True)
+    #     ps.get_point_cloud("DUSt3R Output").add_color_quantity(
+    #         "rgb", colors, defined_on="vertex", enabled=True
+    #     )
+    # else:
+    #     ps.register_point_cloud("DUSt3R Output", pts, enabled=True)
+    # ps.show()
     return
 
 
