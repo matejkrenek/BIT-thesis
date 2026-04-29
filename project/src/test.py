@@ -16,6 +16,10 @@ from core import (
     load_model_checkpoint,
 )
 from dataset.wrapper import PointcloudPatchDataset
+from models.adapointr.utils import fps as adapointr_fps
+
+
+STATIC_EXPORTED_DEFECTED_NPZ = Path("outputs/eval/selected_sample_defected.npz")
 
 
 class _SingleCloudDataset(Dataset):
@@ -71,148 +75,53 @@ def _safe_first_patch_radius(value, fallback: float) -> float:
         return float(fallback)
 
 
-def _sample_points_to_fixed_count_no_fps(
-    points_np: np.ndarray,
-    target_count: int,
-    seed: int,
-) -> np.ndarray:
-    pts = np.asarray(points_np, dtype=np.float32)
-    if pts.ndim != 2 or pts.shape[1] != 3:
-        raise ValueError(f"points must have shape (N,3), got {pts.shape}")
-
-    n = int(pts.shape[0])
-    k = int(target_count)
-    if n <= 0:
-        raise ValueError("points must contain at least one row")
-    if k <= 0:
-        raise ValueError("target_count must be > 0")
-
-    rng = np.random.default_rng(int(seed))
-    if n >= k:
-        idx = rng.choice(n, size=k, replace=False)
-    else:
-        idx = rng.choice(n, size=k, replace=True)
-    return np.asarray(pts[idx], dtype=np.float32)
-
-
-def _select_patch_indices(
-    total_patches: int, requested_patches: int, seed: int
-) -> np.ndarray:
-    total = int(total_patches)
-    req = int(requested_patches)
-    if total <= 0:
-        raise ValueError("total_patches must be > 0")
-    if req <= 0 or req >= total:
-        return np.arange(total, dtype=np.int64)
-    rng = np.random.default_rng(int(seed))
-    return np.asarray(rng.choice(total, size=req, replace=False), dtype=np.int64)
-
-
-def _run_completion_patch_based_from_denoise_style_dataset(
+def _run_completion_with_fps_input(
     *,
     completion_model,
     points_np: np.ndarray,
     device: torch.device,
-    patch_radius: float,
-    points_per_patch: int,
-    output_points_per_patch: int,
+    input_points: int,
     seed: int,
-    batch_size: int,
-    cache_capacity: int,
-    shape_name: str,
-    use_pca: bool,
-    patch_center: str,
-    point_tuple: int,
-    workers: int,
-    max_patches: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    completion_dataset = _build_patch_dataset(
-        defected_np=points_np,
-        original_np=points_np,
-        patch_radius=float(patch_radius),
-        points_per_patch=int(points_per_patch),
-        seed=int(seed),
-        cache_capacity=int(cache_capacity),
-        shape_name=str(shape_name),
-        use_pca=bool(use_pca),
-        patch_center=str(patch_center),
-        point_tuple=int(point_tuple),
-    )
-    total_patches = int(completion_dataset.shape_patch_count[0])
-    selected_indices = _select_patch_indices(total_patches, int(-1), int(seed))
-    completion_subset = Subset(completion_dataset, selected_indices.tolist())
-    completion_loader = DataLoader(
-        completion_subset,
-        batch_size=max(1, int(batch_size)),
-        num_workers=max(0, int(workers)),
-    )
+    pts = np.asarray(points_np, dtype=np.float32)
+    if pts.ndim != 2 or pts.shape[1] != 3:
+        raise ValueError(f"points must have shape (N,3), got {pts.shape}")
 
-    completed_parts: list[torch.Tensor] = []
-    input_parts: list[torch.Tensor] = []
-    center_parts: list[torch.Tensor] = []
+    target_input = max(1, int(input_points))
+    in_t = torch.from_numpy(pts).unsqueeze(0).to(device=device, dtype=torch.float32)
+
+    if in_t.shape[1] >= target_input:
+        in_t = adapointr_fps(in_t, target_input)
+    else:
+        rng = np.random.default_rng(int(seed))
+        extra_idx = rng.choice(
+            int(in_t.shape[1]), size=target_input - int(in_t.shape[1]), replace=True
+        )
+        extra_t = in_t[
+            :, torch.as_tensor(extra_idx, device=device, dtype=torch.long), :
+        ]
+        in_t = torch.cat([in_t, extra_t], dim=1)
 
     with torch.no_grad():
-        for batch_ind, data in enumerate(completion_loader):
-            points, originals, patch_radiuses, data_trans = data
+        _, completion_out = completion_model(in_t)
 
-            points = points.to(device)
-            originals = originals.to(device)
-            patch_radiuses = patch_radiuses.to(device)
-            data_trans = data_trans.to(device)
+    if isinstance(completion_out, (tuple, list)):
+        completed_t = completion_out[-1]
+    else:
+        completed_t = completion_out
 
-            _, completion_out = completion_model(points)
+    if (
+        not torch.is_tensor(completed_t)
+        or completed_t.ndim != 3
+        or completed_t.shape[-1] != 3
+    ):
+        raise RuntimeError(
+            "Unexpected completion output format. Expected tensor of shape (B,N,3)."
+        )
 
-            if isinstance(completion_out, (tuple, list)):
-                completed_t = completion_out[-1]
-            else:
-                completed_t = completion_out
-
-            if (
-                not torch.is_tensor(completed_t)
-                or completed_t.ndim != 3
-                or completed_t.shape[-1] != 3
-            ):
-                raise RuntimeError(
-                    "Unexpected completion output format. Expected tensor of shape (B,N,3)."
-                )
-
-            if bool(use_pca):
-                completed_t = torch.bmm(completed_t, data_trans.transpose(2, 1))
-                points_world_t = torch.bmm(points, data_trans.transpose(2, 1))
-            else:
-                points_world_t = points
-
-            completed_world_t = (
-                completed_t * patch_radiuses.view(-1, 1, 1).float()
-                + originals.view(-1, 1, 3).float()
-            )
-            input_world_t = (
-                points_world_t * patch_radiuses.view(-1, 1, 1).float()
-                + originals.view(-1, 1, 3).float()
-            )
-
-            completed_parts.append(completed_world_t.detach().cpu())
-            input_parts.append(input_world_t.detach().cpu())
-            center_parts.append(originals.detach().cpu())
-
-            print(
-                f"[completion {batch_ind + 1}/{len(completion_loader)}] "
-                f"patches={int(points.shape[0])}"
-            )
-
-    completed_all_t = torch.cat(completed_parts, dim=0)
-    input_all_t = torch.cat(input_parts, dim=0)
-    centers_t = torch.cat(center_parts, dim=0)
-
-    completed_all_np = completed_all_t.reshape(-1, 3).numpy().astype(np.float32)
-    completed_np = _sample_points_to_fixed_count_no_fps(
-        completed_all_np,
-        target_count=int(output_points_per_patch),
-        seed=int(seed),
-    )
-
-    input_np = input_all_t.reshape(-1, 3).numpy().astype(np.float32)
-    centers_np = centers_t.numpy().astype(np.float32)
+    input_np = in_t[0].detach().cpu().numpy().astype(np.float32)
+    completed_np = completed_t[0].detach().cpu().numpy().astype(np.float32)
+    centers_np = np.asarray(input_np.mean(axis=0, keepdims=True), dtype=np.float32)
     return completed_np, input_np, centers_np
 
 
@@ -638,6 +547,12 @@ def main() -> None:
     defected_np, original_np = _extract_cloud_pair(sample)
     shape_name = args.shape_name or f"sample_{sample_index:07d}"
 
+    export_path = STATIC_EXPORTED_DEFECTED_NPZ.expanduser().resolve()
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(str(export_path), defected_pos=defected_np)
+    print(f"[export] Saved defected point cloud to: {export_path}")
+    return
+
     outlier_mask = None
     filtered_input_np = defected_np
     filtered_original_np = original_np
@@ -839,30 +754,14 @@ def main() -> None:
     )
     completionmodel.eval()
 
-    completion_patch_radius = (
-        float(args.completion_patch_radius)
-        if float(args.completion_patch_radius) > 0.0
-        else float(patch_radius)
-    )
-    completion_points_per_patch = max(1, int(args.completion_points_per_patch))
-    completion_batch_size = max(1, min(16, model_batch_size))
+    completion_input_points = max(1, int(args.completion_points_per_patch))
     completed_np, completion_input_np, completion_centers_np = (
-        _run_completion_patch_based_from_denoise_style_dataset(
+        _run_completion_with_fps_input(
             completion_model=completionmodel,
             points_np=denoised_np,
             device=device,
-            patch_radius=completion_patch_radius,
-            points_per_patch=completion_points_per_patch,
-            output_points_per_patch=16384,
+            input_points=completion_input_points,
             seed=int(args.seed),
-            batch_size=completion_batch_size,
-            cache_capacity=int(args.cache_capacity),
-            shape_name=f"{shape_name}_completion",
-            use_pca=use_pca,
-            patch_center=patch_center,
-            point_tuple=point_tuple,
-            workers=int(args.workers),
-            max_patches=int(args.completion_max_patches),
         )
     )
 

@@ -1,0 +1,75 @@
+{
+  "model": "adapointr",
+  "target_dataset": "modelnet",
+  "model_params": {
+    "num_query": 512,
+    "num_points": 16384,
+    "center_num": [
+      512,
+      256
+    ],
+    "global_feature_dim": 1024,
+    "encoder_type": "graph",
+    "decoder_type": "fc",
+    "encoder_config": {
+      "embed_dim": 384,
+      "depth": 6,
+      "num_heads": 6,
+      "k": 8,
+      "n_group": 2,
+      "mlp_ratio": 2.0,
+      "block_style_list": [
+        "attn-graph",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn"
+      ],
+      "combine_style": "concat"
+    },
+    "decoder_config": {
+      "embed_dim": 384,
+      "depth": 8,
+      "num_heads": 6,
+      "k": 8,
+      "n_group": 2,
+      "mlp_ratio": 2.0,
+      "self_attn_block_style_list": [
+        "attn-graph",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn"
+      ],
+      "self_attn_combine_style": "concat",
+      "cross_attn_block_style_list": [
+        "attn-graph",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn",
+        "attn"
+      ],
+      "cross_attn_combine_style": "concat"
+    }
+  },
+  "epochs": 20,
+  "batch_size": 48,
+  "learning_rate": 0.0003,
+  "weight_decay": 0.0001,
+  "best_val_loss": 0.04599025224645933,
+  "run_dir": "/zfs-pool/home/xkrenem00/outputs/adapointr_20260422_083106",
+  "best_checkpoint": "/zfs-pool/home/xkrenem00/outputs/adapointr_20260422_083106/checkpoints/best.pt",
+  "loss_curve": "/zfs-pool/home/xkrenem00/outputs/adapointr_20260422_083106/loss_curve.png",
+  "duration_seconds": 15961,
+  "cuda_visible_devices": "1",
+  "visible_gpus": 1,
+  "selected_gpu_ids": null,
+  "data_parallel": true
+}

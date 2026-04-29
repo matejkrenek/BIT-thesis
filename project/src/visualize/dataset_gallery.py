@@ -16,32 +16,34 @@ class GalleryConfig:
     views: Sequence[Tuple[float, float]] = ((18.0, 35.0), (18.0, 125.0), (18.0, 215.0))
     point_size: float = 6.0
     max_points: int = 12000
-    dpi: int = 220
+    dpi: int = 300
     page_size: Optional[Tuple[float, float]] = None
     background_color: str = "#ffffff"
     point_cmap: str = "gnuplot"
     zoom: float = 1.0
     max_sample_cols: int = 3
-    caption_fontsize: int = 6
+    caption_fontsize: float = 2.8
     title_fontsize: int = 8
     wrap_caption_chars: int = 100
     sample_title_fontsize: int = 7
-    badge_fontsize: int = 5
-    border_color: str = "#9ca3af"
-    border_linewidth: float = 0.8
-    description_color: str = "#6b7280"
-    outer_wspace: float = 0.1
-    outer_hspace: float = 0.1
+    badge_fontsize: float = 2.8
+    border_color: str = "#CCD1D9"
+    border_linewidth: float = 0.32
+    description_color: str = "#6B7280"
+    outer_wspace: float = 0.02
+    outer_hspace: float = 0.02
     inner_wspace: float = 0
     inner_hspace: float = 0
-    block_view_width: float = 1
-    block_row_height: float = 1
+    block_view_width: float = 0.74
+    block_row_height: float = 0.74
     min_figure_width: float = 0
     min_figure_height: float = 0
     image_grid_cols: int = 0
     image_grid_max_images: int = 0
     image_row_height_ratio: float = 1.8
-    side_note_fontsize: int = 5
+    side_note_fontsize: float = 2.8
+    point_rotation_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    page_padding: float = 0.02
 
 
 def _to_numpy_points(obj: Any) -> Optional[np.ndarray]:
@@ -122,6 +124,25 @@ def _normalize_points(points: np.ndarray) -> np.ndarray:
     return points / scale
 
 
+def _rotate_points_xyz(
+    points: np.ndarray,
+    rotation_deg: Tuple[float, float, float],
+) -> np.ndarray:
+    rx, ry, rz = [np.deg2rad(float(v)) for v in rotation_deg]
+
+    cx, sx = np.cos(rx), np.sin(rx)
+    cy, sy = np.cos(ry), np.sin(ry)
+    cz, sz = np.cos(rz), np.sin(rz)
+
+    rot_x = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float32)
+    rot_y = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float32)
+    rot_z = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+
+    # Apply intrinsic XYZ rotations in order X->Y->Z.
+    rot = rot_z @ rot_y @ rot_x
+    return points @ rot.T
+
+
 def _subsample_points(
     points: np.ndarray,
     max_points: int,
@@ -148,6 +169,7 @@ def render_pointcloud_view(
     rng: np.random.Generator,
     max_points: int,
     zoom: float,
+    point_rotation_deg: Tuple[float, float, float],
 ) -> np.ndarray:
     """Render one point cloud view to an RGB image array."""
     points, colors = _extract_points_and_colors(cloud)
@@ -155,6 +177,8 @@ def render_pointcloud_view(
         raise ValueError("Could not extract point cloud points for rendering")
 
     points = _normalize_points(points)
+    if any(abs(float(v)) > 1e-12 for v in point_rotation_deg):
+        points = _rotate_points_xyz(points, point_rotation_deg)
     pts, colors = _subsample_points(
         points, max_points=max_points, rng=rng, colors=colors
     )
@@ -372,13 +396,14 @@ def create_dataset_gallery_figure(
     fig = plt.figure(figsize=page_size, dpi=config.dpi)
     fig.patch.set_facecolor("white")
 
+    page_pad = min(max(float(config.page_padding), 0.0), 0.25)
     outer = fig.add_gridspec(
         n_sample_rows,
         n_sample_cols,
-        left=0.06,
-        right=0.94,
-        top=0.89,
-        bottom=0.10,
+        left=page_pad,
+        right=1.0 - page_pad,
+        top=1.0 - page_pad,
+        bottom=page_pad,
         wspace=config.outer_wspace,
         hspace=config.outer_hspace,
     )
@@ -466,6 +491,7 @@ def create_dataset_gallery_figure(
                         rng=rng,
                         max_points=config.max_points,
                         zoom=config.zoom,
+                        point_rotation_deg=config.point_rotation_deg,
                     )
                     ax.imshow(img)
                     ax.set_axis_off()
@@ -473,31 +499,31 @@ def create_dataset_gallery_figure(
             badge_text = row_badges[group_idx]
             low = badge_text.lower()
             if low.startswith("orig") or low == "gt":
-                badge_color = "#dbeafe"
+                badge_color = "#2F80ED66"
             elif "defect" in low:
-                badge_color = "#fee2e2"
+                badge_color = "#EF558166"
             elif "image" in low or "frame" in low:
-                badge_color = "#fef9c3"
+                badge_color = "#F2C94C66"
             elif "mask" in low:
-                badge_color = "#e5e7eb"
+                badge_color = "#CCD1D966"
             else:
-                badge_color = "#ecfeff"
+                badge_color = "#CCD1D966"
 
             badge_ax = fig.add_subplot(inner[group_idx, 0])
             badge_ax.text(
-                0.05,
-                0.9,
+                0.03,
+                0.94,
                 badge_text,
                 transform=badge_ax.transAxes,
                 ha="left",
                 va="top",
                 fontsize=config.badge_fontsize,
-                color="#111827",
+                color="#151922",
                 bbox={
-                    "boxstyle": "round,pad=0.2",
+                    "boxstyle": "round,pad=0.12",
                     "facecolor": badge_color,
-                    "edgecolor": "#cbd5e1",
-                    "linewidth": 0.8,
+                    "edgecolor": "#CCD1D9",
+                    "linewidth": 0.2,
                 },
             )
 
@@ -510,8 +536,8 @@ def create_dataset_gallery_figure(
                     transform=badge_ax.transAxes,
                     ha="left",
                     va="top",
-                    fontsize=max(4, config.badge_fontsize - 1),
-                    color="#111827",
+                    fontsize=max(2.2, config.badge_fontsize - 0.4),
+                    color="#151922",
                     linespacing=1.2,
                 )
             badge_ax.set_axis_off()
@@ -541,15 +567,15 @@ def create_dataset_gallery_figure(
             desc = descriptions[sample_idx] or ""
         wrapped_desc = textwrap.fill(desc, width=config.wrap_caption_chars)
         border_ax.text(
-            0.0,
-            -0.085,
+            0.02,
+            0.01,
             wrapped_desc,
             transform=border_ax.transAxes,
             ha="left",
-            va="top",
+            va="bottom",
             fontsize=config.caption_fontsize,
             color=config.description_color,
-            clip_on=False,
+            clip_on=True,
         )
 
         side_note = ""
@@ -602,7 +628,8 @@ def save_dataset_gallery(
         config=config,
         seed=seed,
     )
-    fig.savefig(output_path, bbox_inches="tight")
+    # Keep exact figure canvas bounds to preserve consistent document-edge padding.
+    fig.savefig(output_path)
     plt.close(fig)
 
 

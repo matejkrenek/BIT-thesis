@@ -10,7 +10,7 @@ from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
 
 from dataset.downloader.huggingface import HuggingFaceDownloader
-from core import logger
+from core.logger import logger
 
 
 class ShapeNetDataset(InMemoryDataset):

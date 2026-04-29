@@ -12,6 +12,13 @@ from .datasets import (
     create_train_val_test_dataloaders,
 )
 from .logger import logger
+from .inference_pipeline import (
+    InferenceOptions,
+    InferenceResult,
+    MODEL_PRESETS,
+    run_inference,
+    visualize_result_polyscope,
+)
 from .models import (
     ModelConfig,
     available_models,
@@ -33,6 +40,11 @@ __all__ = [
     "create_advanced_reconstruction_dataset",
     "create_train_val_test_dataloaders",
     "logger",
+    "InferenceOptions",
+    "InferenceResult",
+    "MODEL_PRESETS",
+    "run_inference",
+    "visualize_result_polyscope",
     "ModelConfig",
     "available_models",
     "create_model",

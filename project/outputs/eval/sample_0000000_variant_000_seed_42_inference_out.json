@@ -1,0 +1,79 @@
+{
+  "options": {
+    "input_path": "/home/matejkrenek/fitvut/bit-thesis/project/data/ShapeNetV2_basic_defected/sample_0000000_variant_000_seed_42.npz",
+    "output_path": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/eval/sample_0000000_variant_000_seed_42_inference_out.npz",
+    "report_json_path": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/eval/sample_0000000_variant_000_seed_42_inference_out.json",
+    "input_npz_key": "points",
+    "output_npz_key": "points",
+    "seed": 40938661,
+    "workers": 1,
+    "batch_size": 128,
+    "cache_capacity": 100,
+    "n_neighbours": 100,
+    "patch_radius": 0.05,
+    "points_per_patch": 500,
+    "completion_points": 8192,
+    "outlier_threshold": 0.4,
+    "point_radius": 0.0022,
+    "run_outlier_before": false,
+    "run_denoise": false,
+    "run_outlier_after": false,
+    "run_completion": true,
+    "completion_model": "adapointr",
+    "denoise_checkpoint": "outputs/pointcleannet/PointCleanNet_model.pth",
+    "denoise_params_checkpoint": "outputs/pointcleannet/PointCleanNet_params.pth",
+    "outlier_checkpoint": "",
+    "completion_checkpoint": "outputs/adapointr/checkpoints/best.pt"
+  },
+  "stage_timings": [
+    {
+      "name": "load_input",
+      "seconds": 0.00067479600011211
+    },
+    {
+      "name": "load_completion_model",
+      "seconds": 1.181263711000156
+    },
+    {
+      "name": "completion",
+      "seconds": 0.3767827380002018
+    },
+    {
+      "name": "save_output",
+      "seconds": 0.005431701999896177
+    }
+  ],
+  "input_info": {
+    "path": "/home/matejkrenek/fitvut/bit-thesis/project/data/ShapeNetV2_basic_defected/sample_0000000_variant_000_seed_42.npz",
+    "points": 6399,
+    "bbox_min": [
+      -0.8661324977874756,
+      -0.19035844504833221,
+      -0.8792462944984436
+    ],
+    "bbox_max": [
+      0.6760299205780029,
+      0.21098853647708893,
+      0.5175747871398926
+    ]
+  },
+  "output_info": {
+    "path": "/home/matejkrenek/fitvut/bit-thesis/project/outputs/eval/sample_0000000_variant_000_seed_42_inference_out.npz",
+    "points": 16384,
+    "bbox_min": [
+      -0.8669975399971008,
+      -0.18976333737373352,
+      -0.8660739660263062
+    ],
+    "bbox_max": [
+      0.8653047680854797,
+      0.4372648000717163,
+      0.9775562286376953
+    ],
+    "format": ".npz"
+  },
+  "summary": {
+    "total_seconds": 1.5641529470003661,
+    "stage_count": 4
+  }
+}

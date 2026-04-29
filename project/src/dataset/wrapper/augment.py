@@ -131,9 +131,16 @@ class AugmentWrapperDataset(Dataset):
             defected_pos=defected_pos_t,
         )
 
+        category = getattr(data, "category", None)
+        if category is not None:
+            output.category = category
+
+        text = getattr(data, "text", None)
+        if text is not None:
+            output.text = text
+
         # Optionally include original and logs
         if self.detailed:
-            output.category = getattr(data, "category", None)
             output.log = {defect.name: defect_log}
             if cache_path is not None:
                 output.cache_path = str(cache_path)

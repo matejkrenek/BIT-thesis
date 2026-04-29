@@ -60,6 +60,10 @@ class StagedAugmentWrapperDataset(Dataset):
             category=getattr(data, "category", None),
         )
 
+        text = getattr(data, "text", None)
+        if text is not None:
+            output.text = text
+
         if self.detailed:
             output.log = {
                 "stage1": "basic_reconstruction",
