@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: __init__.py
+Responsibility: Exports dataset wrapper classes for normalization, patching, augmentation, splitting, and compatibility.
+"""
+
 from .dense import DenseWrapperDataset
 from .split import SplitWrapperDataset
 from .augment import AugmentWrapperDataset
@@ -7,3 +14,13 @@ from .staged_augment import StagedAugmentWrapperDataset
 from .pointcleannet_compat import (
     PointcloudPatchDataset,
 )
+
+__all__ = [
+    "DenseWrapperDataset",
+    "SplitWrapperDataset",
+    "AugmentWrapperDataset",
+    "PatchWrapperDataset",
+    "NormalizeWrapperDataset",
+    "StagedAugmentWrapperDataset",
+    "PointcloudPatchDataset",
+]

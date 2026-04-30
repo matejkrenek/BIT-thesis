@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: patch.py
+Responsibility: Wrapper dataset for extracting local patches from point clouds using FPS/KNN or PointCleanNet-compatible methods.
+"""
+
 import math
 import torch
 from pytorch3d.ops import sample_farthest_points
@@ -6,6 +13,25 @@ from torch_geometric.data import Data
 
 
 class PatchWrapperDataset(Dataset):
+    """
+    Wrapper dataset for extracting local patches from point clouds.
+
+    Supports FPS+KNN and PointCleanNet-compatible radius patching.
+
+    Args:
+        dataset: Base dataset.
+        patch_size: Number of points per patch.
+        num_patches: Number of patches per sample.
+        normalize_patches: Whether to normalize each patch.
+        overlap_ratio: Allowed overlap between patches.
+        max_extra_patches: Max extra patches per sample.
+        patching_method: 'fps_knn' or 'pointcleannet_radius'.
+        patch_radius: Radius for pointcleannet_radius.
+        patch_center: Centering mode for patches.
+        patch_point_count_std: Stddev for random patch size reduction.
+        include_full_objects: If True, keep full object in sample.
+    """
+
     def __init__(
         self,
         dataset: Dataset,
@@ -304,7 +330,11 @@ class PatchWrapperDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.dataset[idx]
 
-        if not isinstance(sample, Data) or not hasattr(sample, "original_pos") or not hasattr(sample, "defected_pos"):
+        if (
+            not isinstance(sample, Data)
+            or not hasattr(sample, "original_pos")
+            or not hasattr(sample, "defected_pos")
+        ):
             return None  # vadný vzorek
 
         original_pos, defected_pos, data = self._extract_pos_and_meta(sample)

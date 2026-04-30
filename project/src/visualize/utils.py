@@ -1,7 +1,15 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: utils.py
+Responsibility: Utility functions for rendering and saving 3D point cloud images using matplotlib.
+"""
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+
 
 def plot_pointcloud_to_image(
     pointcloud,
@@ -12,6 +20,19 @@ def plot_pointcloud_to_image(
     azim=45,
     point_size=1.0,
 ):
+    """
+    Render a 3D point cloud to an RGB image using matplotlib.
+    Args:
+        pointcloud: (N, 3) array or torch.Tensor of 3D points.
+        output_path: Optional path to save the image.
+        figsize, dpi: Figure size and resolution.
+        elev, azim: View angles.
+        point_size: Size of points in the plot.
+    Returns:
+        image: RGB numpy array of the rendered figure.
+    """
+
+    # Extract proper format from pointcloud object
     if isinstance(pointcloud, torch.Tensor):
         pointcloud = pointcloud.detach().cpu().numpy()
 
@@ -23,6 +44,7 @@ def plot_pointcloud_to_image(
     if pointcloud.ndim != 2 or pointcloud.shape[1] != 3:
         raise ValueError("pointcloud must have shape (N, 3) or (1, N, 3)")
 
+    # Prepare figure structure and plot the pointcloud using scatter plot
     fig = plt.figure(figsize=figsize, dpi=dpi)
     ax = fig.add_subplot(111, projection="3d")
 
@@ -36,6 +58,7 @@ def plot_pointcloud_to_image(
         linewidths=0,
     )
 
+    # Fit the pointcloud into viewport properly
     mins = pointcloud.min(axis=0)
     maxs = pointcloud.max(axis=0)
     center = (mins + maxs) / 2.0
@@ -46,15 +69,19 @@ def plot_pointcloud_to_image(
     ax.set_ylim(center[1] - radius, center[1] + radius)
     ax.set_zlim(center[2] - radius, center[2] + radius)
 
+    # Set view angles and styling
     ax.view_init(elev=elev, azim=azim)
     ax.set_axis_off()
     ax.set_box_aspect((1, 1, 1))
     fig.tight_layout(pad=0)
 
+    # Draw the figure to a canvas and convert to RGB image array
     canvas = FigureCanvasAgg(fig)
     canvas.draw()
     width, height = fig.canvas.get_width_height()
-    image = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
+    image = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(
+        height, width, 3
+    )
 
     if output_path is not None:
         fig.savefig(output_path, bbox_inches="tight", pad_inches=0)
@@ -75,6 +102,17 @@ def plot_dense_pointcloud_to_image(
     max_points=250000,
     seed=42,
 ):
+    """
+    Render a dense 3D point cloud (optionally with RGB colors) to an RGB image using matplotlib.
+    Args:
+        pointcloud: (N, 3) array or torch.Tensor of 3D points.
+        colors: (N, 3) or (N, 4) array of RGB(A) colors, or None for default.
+        output_path: Optional path to save the image.
+        max_points: Maximum number of points to plot (randomly subsampled if exceeded).
+        seed: RNG seed for reproducibility.
+    Returns:
+        image: RGB numpy array of the rendered figure.
+    """
     if hasattr(pointcloud, "vertices"):
         vertices = np.asarray(pointcloud.vertices)
         if colors is None and hasattr(pointcloud, "colors"):
@@ -101,9 +139,13 @@ def plot_dense_pointcloud_to_image(
         colors = np.ones((pointcloud.shape[0], 3), dtype=np.float32)
     else:
         if colors.ndim != 2 or colors.shape[1] not in (3, 4):
-            raise ValueError("colors must have shape (N, 3), (N, 4), (1, N, 3), or (1, N, 4)")
+            raise ValueError(
+                "colors must have shape (N, 3), (N, 4), (1, N, 3), or (1, N, 4)"
+            )
         if pointcloud.shape[0] != colors.shape[0]:
-            raise ValueError("pointcloud and colors must have the same number of points")
+            raise ValueError(
+                "pointcloud and colors must have the same number of points"
+            )
         if colors.shape[1] == 4:
             colors = colors[:, :3]
 
@@ -151,13 +193,12 @@ def plot_dense_pointcloud_to_image(
     canvas = FigureCanvasAgg(fig)
     canvas.draw()
     width, height = fig.canvas.get_width_height()
-    image = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
+    image = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(
+        height, width, 3
+    )
 
     if output_path is not None:
         fig.savefig(output_path, bbox_inches="tight", pad_inches=0)
 
     plt.close(fig)
     return image
-
-
-plot_toponmtincloud_to_image = plot_dense_pointcloud_to_image

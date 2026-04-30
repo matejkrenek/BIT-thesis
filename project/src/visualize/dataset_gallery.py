@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: dataset_gallery.py
+Responsibility: Gallery creation and rendering utilities for 3D point cloud datasets, including multi-sample, multi-view figure generation for publication and analysis.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +16,13 @@ import matplotlib.path as mpath
 import matplotlib.patches as mpatches
 import numpy as np
 import torch
+
+__all__ = [
+    "GalleryConfig",
+    "create_dataset_gallery_figure",
+    "save_dataset_gallery",
+    "format_defect_log",
+]
 
 
 @dataclass

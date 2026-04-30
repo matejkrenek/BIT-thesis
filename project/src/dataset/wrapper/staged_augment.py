@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: staged_augment.py
+Responsibility: Wrapper dataset for staged augmentation, applying multiple defect stages to point clouds.
+"""
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -5,15 +12,22 @@ from torch_geometric.data import Data
 
 
 class StagedAugmentWrapperDataset(Dataset):
-    """Apply a second-stage defect on top of an already defected sample.
+    """
+    Wrapper dataset for staged augmentation, applying a second-stage defect on top of an already defected sample.
 
     Input sample is expected to contain:
-    - original_pos: clean/base reference
-    - defected_pos: first-stage defected cloud (e.g., with holes)
+        - original_pos: clean/base reference
+        - defected_pos: first-stage defected cloud (e.g., with holes)
 
     Output sample semantics:
-    - original_pos: first-stage defected cloud
-    - defected_pos: first-stage cloud + second-stage artifacts
+        - original_pos: first-stage defected cloud
+        - defected_pos: first-stage cloud + second-stage artifacts
+
+    Args:
+        dataset: Base dataset (should provide Data with 'original_pos' and 'defected_pos').
+        defects: List of second-stage defect transformations to apply.
+        detailed: If True, include defect logs in output.
+        seed: Random seed for reproducibility.
     """
 
     def __init__(

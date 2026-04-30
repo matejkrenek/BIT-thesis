@@ -1,3 +1,12 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: sample.py
+Responsibility: Implements a viewer for visualizing dataset samples, including original, defected, and inferred point clouds.
+
+This viewer is intended for interactive exploration of dataset samples and inference results using Polyscope.
+"""
+
 import polyscope as ps
 import polyscope.imgui as psim
 from .base import BaseViewer
@@ -8,9 +17,10 @@ from typing import Union, Callable, Optional
 class SampleViewer(BaseViewer):
     """
     Viewer for visualizing samples from a dataset.
+
     Args:
         dataset (Union[Dataset, DataLoader]): The dataset or dataloader to visualize samples from.
-        inference (Optional[Callable]): Optional function that takes a sample and returns a point cloud.
+        inference (Optional[Callable]): Optional function that takes a sample and returns a point cloud (for inference visualization).
     """
 
     def __init__(
@@ -22,6 +32,7 @@ class SampleViewer(BaseViewer):
 
         if not self.initialized:
             ps.init()
+            # Store dataset and dataloader references
             self.dataset = dataset if isinstance(dataset, Dataset) else dataset.dataset
             self.dataloader = dataset if isinstance(dataset, DataLoader) else None
             self.inference = inference
@@ -30,9 +41,12 @@ class SampleViewer(BaseViewer):
             self.initialized = True
 
     def gui_callback(self):
-        """Draw the GUI elements for the viewer."""
+        """
+        Draw the GUI elements for the viewer (navigation, info, toggles).
+        """
         old_index = self.index
 
+        # Navigation buttons and keyboard shortcuts
         if ps.imgui.Button("Previous") or psim.IsKeyPressed(psim.ImGuiKey_LeftArrow):
             self.prev()
 
@@ -41,6 +55,7 @@ class SampleViewer(BaseViewer):
         if ps.imgui.Button("Next") or psim.IsKeyPressed(psim.ImGuiKey_RightArrow):
             self.next()
 
+        # Toggle visibility of defected/original clouds with arrow keys
         if psim.IsKeyPressed(psim.ImGuiKey_UpArrow):
             pc_defected = ps.get_point_cloud("defected")
             pc_defected.set_enabled(not pc_defected.is_enabled())
@@ -51,7 +66,7 @@ class SampleViewer(BaseViewer):
 
         ps.imgui.Text(f"Sample {self.index + 1} / {len(self.dataset)}")
 
-        # Display defect log if available
+        # Display defect log if available (expects sample[2] to be a dict)
         if len(self.sample) > 2 and isinstance(self.sample[2], dict):
             for defect, params in self.sample[2].items():
                 ps.imgui.Separator()
@@ -64,21 +79,28 @@ class SampleViewer(BaseViewer):
             self.draw()
 
     def next(self):
-        """Go to the next sample in the dataset."""
+        """
+        Go to the next sample in the dataset.
+        """
         if self.index < len(self.dataset) - 1:
             self.index += 1
             self.sample = self.dataset[self.index]
 
     def prev(self):
-        """Go to the previous sample in the dataset."""
+        """
+        Go to the previous sample in the dataset.
+        """
         if self.index > 0:
             self.index -= 1
             self.sample = self.dataset[self.index]
 
     def draw(self):
-        """Draw the current sample point clouds."""
+        """
+        Draw the current sample's point clouds (original, defected, and optionally inferred).
+        """
         self.clear()
 
+        # Register the original point cloud (usually ground truth)
         ps.register_point_cloud(
             "original",
             self.sample.original_pos,
@@ -86,6 +108,7 @@ class SampleViewer(BaseViewer):
             color=(0.0, 1.0, 0.0),
             point_render_mode="quad",
         )
+        # Register the defected point cloud (with simulated defects)
         ps.register_point_cloud(
             "defected",
             self.sample.defected_pos,
@@ -106,13 +129,16 @@ class SampleViewer(BaseViewer):
             )
 
     def show(self):
-        """Show the viewer window."""
+        """
+        Show the viewer window and start the interactive Polyscope session.
+        """
         self.draw()
         ps.set_user_callback(self.gui_callback)
         ps.set_ground_plane_mode("none")
-
         ps.show()
 
     def clear(self):
-        """Clear all registered structures."""
+        """
+        Clear all registered structures from the Polyscope window.
+        """
         ps.remove_all_structures()

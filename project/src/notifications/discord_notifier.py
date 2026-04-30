@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: discord_notifier.py
+Responsibility: Discord notification class for sending training, error, and custom status updates via webhook.
+"""
+
 from discord_webhook import DiscordWebhook, DiscordEmbed
 from pathlib import Path
 import datetime
@@ -24,7 +31,6 @@ class DiscordNotifier:
         silent_mode: bool = False,
     ):
         """
-        Initialize the Discord notifier.
 
         Args:
             webhook_url: Discord webhook URL
@@ -130,7 +136,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
-        if self.silent_mode: return {"status": "silent_mode_enabled"}
+        if self.silent_mode:
+            return {"status": "silent_mode_enabled"}
 
         webhook = self._create_webhook()
 
@@ -229,7 +236,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
-        if self.silent_mode: return {"status": "silent_mode_enabled"}
+        if self.silent_mode:
+            return {"status": "silent_mode_enabled"}
 
         webhook = self._create_webhook()
 
@@ -294,7 +302,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
-        if self.silent_mode: return {"status": "silent_mode_enabled"}
+        if self.silent_mode:
+            return {"status": "silent_mode_enabled"}
 
         webhook = self._create_webhook()
 
@@ -352,7 +361,8 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
-        if self.silent_mode: return {"status": "silent_mode_enabled"}
+        if self.silent_mode:
+            return {"status": "silent_mode_enabled"}
 
         webhook = self._create_webhook()
 
@@ -424,8 +434,9 @@ class DiscordNotifier:
         Returns:
             dict: Response from Discord API
         """
-        if self.silent_mode: return {"status": "silent_mode_enabled"}
-        
+        if self.silent_mode:
+            return {"status": "silent_mode_enabled"}
+
         webhook = self._create_webhook()
 
         embed = self._create_base_embed(title, description, color)

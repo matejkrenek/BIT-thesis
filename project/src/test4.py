@@ -1,45 +1,44 @@
-from __future__ import annotations
-
-import argparse
+# Simple .ply loader and polyscope visualizer
+import sys
 from pathlib import Path
-
 import numpy as np
+import trimesh
+import polyscope as ps
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Load NPZ point cloud and visualize it with Polyscope."
+def main():
+    if len(sys.argv) > 1:
+        ply_path = Path(sys.argv[1])
+    else:
+        ply_path = Path("./duster_output.ply")
+    assert ply_path.exists(), f"PLY file {ply_path} does not exist!"
+
+    # Load point cloud
+    print(f"Loading point cloud from {ply_path}")
+    pc = trimesh.load(str(ply_path))
+    pts = np.asarray(pc.vertices)
+    colors = (
+        np.asarray(pc.colors)
+        if hasattr(pc, "colors") and pc.colors is not None
+        else None
     )
-    parser.add_argument(
-        "--input-npz",
-        type=str,
-        default="./test.npz",
-        help="Path to NPZ file containing point cloud arrays.",
-    )
-    parser.add_argument(
-        "--input-key",
-        type=str,
-        default="completed_pos",
-        help="NPZ key to visualize.",
-    )
-    parser.add_argument(
-        "--show-all",
-        action="store_true",
-        help="Show all compatible point clouds from NPZ (N,3) in one Polyscope scene.",
-    )
-    parser.add_argument(
-        "--name",
-        type=str,
-        default="npz_pointcloud",
-        help="Polyscope object name.",
-    )
-    parser.add_argument(
-        "--radius",
-        type=float,
-        default=0.0022,
-        help="Point radius in Polyscope.",
-    )
-    return parser
+    # If colors are RGBA, use only RGB
+    if colors is not None and colors.shape[1] == 4:
+        colors = colors[:, :3]
+
+    # Visualize with polyscope
+    print("Visualizing point cloud with polyscope...")
+    ps.init()
+    ps.register_point_cloud("Loaded Point Cloud", pts, enabled=True)
+    if colors is not None:
+        ps.get_point_cloud("Loaded Point Cloud").add_color_quantity(
+            "rgb", colors, enabled=True
+        )
+    ps.show()
+
+
+if __name__ == "__main__":
+    main()
 
 
 def _to_points(array: np.ndarray) -> np.ndarray:

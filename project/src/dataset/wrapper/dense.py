@@ -15,6 +15,14 @@ class DenseWrapperDataset(Dataset):
         num_points: int = 100_000,
         use_mmap: bool = True,
     ):
+        """
+        Wrapper dataset that converts sparse point clouds to dense representations.
+
+        Args:
+            dataset: Base dataset.
+            voxel_size: Size of voxels for densification.
+            upsample: Whether to upsample points.
+        """
         self.dataset = dataset
         self.root = root
         self.num_points = num_points
@@ -69,7 +77,7 @@ class DenseWrapperDataset(Dataset):
 
         if not isinstance(data, Data) or not hasattr(data, "pos"):
             return None  # vadný vzorek
-        
+
         self._sample_dense(idx)
         dense_path = self._get_dense_path(idx)
         dense_points = self._load_dense(dense_path)

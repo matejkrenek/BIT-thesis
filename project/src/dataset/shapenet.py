@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: shapenet.py
+Responsibility: Dataset loader for ShapeNetV2 3D point cloud objects with category filtering and preprocessing.
+"""
+
 import os
 import os.path as osp
 from typing import Callable, List, Optional, Union
@@ -14,6 +21,17 @@ from core.logger import logger
 
 
 class ShapeNetDataset(InMemoryDataset):
+    """
+    ShapeNetV2 dataset loader for 3D point cloud experiments.
+
+    Args:
+        root: Root directory containing ShapeNetV2 data.
+        categories: List of category names to include (default: all).
+        transform: Optional transform to apply to each sample.
+        pre_transform: Optional transform before saving to disk.
+        pre_filter: Optional filter before saving to disk.
+        force_reload: If True, clears processed data and reprocesses.
+    """
 
     category_ids = {
         "airplane": "02691156",

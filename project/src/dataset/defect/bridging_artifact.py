@@ -1,17 +1,26 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: bridging_artifact.py
+Responsibility: Synthetic defect class that creates artificial bridges between distant parts of a point cloud.
+"""
+
 from .base import Defect
 import numpy as np
 
 
 class BridgingArtifact(Defect):
     """
-    Creates artificial bridges between distant parts of the object by selecting
-    endpoints on opposite sides of the bounding box. This guarantees visible,
-    structural bridging even for single solid objects.
+    Synthetic defect that creates artificial bridges between distant parts of the object by selecting endpoints on opposite sides of the bounding box.
 
     Purpose:
-        - Simulates incorrect MVS connectivity between regions that should not
-          be connected (e.g., object ↔ background, two legs of a chair, etc.).
+        - Simulates incorrect MVS connectivity between regions that should not be connected (e.g., object ↔ background, two legs of a chair, etc.).
         - Always produces visible artifacts, even on single-piece models.
+
+    Args:
+        num_bridges (int): Number of bridges to create.
+        points_per_bridge (int): Number of points per bridge.
+        jitter (float): Standard deviation of noise added to bridge points.
     """
 
     name: str = "bridging_artifact"

@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: pointcleannet_compat.py
+Responsibility: Wrapper dataset for extracting PointCleanNet-compatible patches from point clouds.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -42,10 +49,21 @@ class _Cache:
 
 
 class PointcloudPatchDataset(data.Dataset):
-    """Compatibility wrapper with the same output contract as official PointCleanNet dataset.
+    """
+    Wrapper dataset for extracting PointCleanNet-compatible patches from point clouds.
 
     Output tuple format (for patch_features=["original"]):
-      (patch_points, original_center_point, patch_radius_scalar, pca_transform)
+        (patch_points, original_center_point, patch_radius_scalar, pca_transform)
+
+    Args:
+        dataset: Base dataset.
+        patch_radius: Radius for patch extraction.
+        points_per_patch: Number of points per patch.
+        patch_features: Features to extract for each patch.
+        seed: Optional random seed for reproducibility.
+        identical_epochs: If True, patches are identical across epochs.
+        use_pca: Whether to compute PCA transform for each patch.
+        center: Centering mode for patches.
     """
 
     def __init__(

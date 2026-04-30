@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: chamfer.py
+Responsibility: Chamfer distance metric for 3D point clouds using PyTorch3D.
+"""
+
 from typing import Optional
 
 import torch
@@ -16,7 +23,21 @@ def chamfer_distance_metric(
     point_reduction: str = "mean",
     norm: int = 2,
 ) -> torch.Tensor:
-    """Compute Chamfer Distance using PyTorch3D."""
+    """
+    Compute Chamfer Distance using PyTorch3D.
+
+    Args:
+        pred: (B, N, 3) or (N, 3) predicted point cloud(s).
+        gt: (B, M, 3) or (M, 3) ground-truth point cloud(s).
+        pred_lengths: Optional tensor of valid point counts for pred.
+        gt_lengths: Optional tensor of valid point counts for gt.
+        batch_reduction: Reduction over batch ('mean', 'sum', 'none').
+        point_reduction: Reduction over points ('mean', 'sum', 'none').
+        norm: Distance norm (default 2).
+
+    Returns:
+        Chamfer distance as a scalar tensor or batch tensor.
+    """
     pred = ensure_batched(pred)
     gt = ensure_batched(gt)
 
@@ -33,3 +54,6 @@ def chamfer_distance_metric(
         norm=norm,
     )
     return cd
+
+
+__all__ = ["chamfer_distance_metric"]

@@ -1,20 +1,25 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: large_missing_region.py
+Responsibility: Synthetic defect class that removes a large structural region from a point cloud by slicing along a random direction.
+"""
+
 from .base import Defect
 import numpy as np
 
 
 class LargeMissingRegion(Defect):
     """
-    Removes a large structural region of the point cloud by slicing along a
-    random direction. Guaranteed removal of a specified fraction of points.
+    Synthetic defect that removes a large structural region of the point cloud by slicing along a random direction.
 
     Purpose:
         - Simulates large missing chunks typical for MVS failures.
         - Always removes a continuous part of the object (unlike sphere dropout).
         - Encourages global shape reasoning during reconstruction.
 
-    Parameters:
-        removal_fraction (float):
-            Fraction of points to remove in [0.1, 0.7].
+    Args:
+        removal_fraction (float): Fraction of points to remove in [0.1, 0.7].
             Example: 0.3 removes the top 30% along a random view direction.
     """
 

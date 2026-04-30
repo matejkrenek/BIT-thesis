@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: co3d.py
+Responsibility: Dataset loader for CO3D multi-view 3D object reconstruction with CDN download support.
+"""
+
 import os
 import os.path as osp
 from typing import Callable, List, Optional, Union
@@ -22,6 +29,17 @@ CDN links file: https://scontent.fprg4-1.fna.fbcdn.net/m1/v/t6/An_tlCbE1hnVIBR2L
 
 
 class CO3DDataset(InMemoryDataset):
+    """
+    CO3D dataset loader for 3D object reconstruction from multi-view images.
+
+    Args:
+        root: Root directory containing CO3D data.
+        categories: List of category names to include (default: all).
+        transform: Optional transform to apply to each sample.
+        pre_transform: Optional transform before saving to disk.
+        pre_filter: Optional filter before saving to disk.
+        force_reload: If True, clears processed data and reprocesses.
+    """
 
     category_ids = {
         "apple": "https://scontent.xx.fbcdn.net/m1/v/t6/An_QSC6hT-8cb3Gd3PJ9U2VYscdbDWFj_Ny11wi4ptmIspsE70S_BTc8R6OkSBdIZzWNbqbOu6LEyWovGIk.zip?_nc_gid&ccb=10-5&oh=00_AftQyUE8X9HSlKxkm25TzwKFR54UtbFLgOLdFaXoTHD4Kw&oe=69A7CC36&_nc_sid=ba4296",

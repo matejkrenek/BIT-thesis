@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: modelnet.py
+Responsibility: Dataset loader for ModelNet40 3D point cloud objects with category filtering and preprocessing.
+"""
+
 import os
 import os.path as osp
 from typing import Callable, List, Optional, Union
@@ -19,6 +26,17 @@ Kaggle link: https://www.kaggle.com/datasets/balraj98/modelnet40-princeton-3d-ob
 
 
 class ModelNetDataset(InMemoryDataset):
+    """
+    ModelNet40 dataset loader for 3D point cloud experiments.
+
+    Args:
+        root: Root directory containing ModelNet40 data.
+        categories: List of category names to include (default: all).
+        transform: Optional transform to apply to each sample.
+        pre_transform: Optional transform before saving to disk.
+        pre_filter: Optional filter before saving to disk.
+        force_reload: If True, clears processed data and reprocesses.
+    """
 
     category_ids = {
         "airplane": "airplane",
