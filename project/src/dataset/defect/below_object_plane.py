@@ -1,13 +1,19 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: below_object_plane.py
+Responsibility: Synthetic defect class that adds a planar artifact beneath an object point cloud.
+"""
+
 from .base import Defect
 import numpy as np
 
 
 class BelowObjectPlane(Defect):
     """
-    Adds a synthetic planar artifact beneath an object point cloud.
+    Synthetic defect that adds a planar artifact beneath an object point cloud.
 
-    This simulates photogrammetry reconstructions where a false floor/plane
-    appears under the reconstructed object.
+    Simulates photogrammetry reconstructions where a false floor/plane appears under the reconstructed object.
     """
 
     name: str = "below_object_plane"

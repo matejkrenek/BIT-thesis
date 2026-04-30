@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: huggingface.py
+Responsibility: Downloader for datasets from HuggingFace Hub with optional authentication and zip extraction.
+"""
+
 from .base import BaseDownloader
 from huggingface_hub import list_repo_files, hf_hub_download
 from core.logger import logger
@@ -7,7 +14,8 @@ import os
 
 class HuggingFaceDownloader(BaseDownloader):
     """
-    Downloader for datasets from HuggingFace Hub.
+    Downloader for datasets from HuggingFace Hub with optional authentication and zip extraction.
+
     Args:
         local_dir (str): Local directory to save the dataset.
         remote_dir (str): HuggingFace dataset repository identifier.

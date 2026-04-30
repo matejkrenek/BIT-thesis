@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: base.py
+Responsibility: Abstract base class for all dataset downloader implementations.
+"""
+
 from abc import ABC, abstractmethod
 from typing import Optional
 from pathlib import Path
@@ -6,6 +13,7 @@ from pathlib import Path
 class BaseDownloader(ABC):
     """
     Abstract base class for all dataset downloaders.
+
     Args:
         local_dir (str): Local directory to save the dataset.
         remote_dir (str): Remote directory or repository identifier.

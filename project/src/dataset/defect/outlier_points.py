@@ -1,10 +1,19 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: outlier_points.py
+Responsibility: Synthetic defect class that adds random outlier points around the main object bounding box.
+"""
+
 from .base import Defect
 import numpy as np
 
 
 class OutlierPoints(Defect):
     """
-    OutlierPoints adds random outlier points around the main object bounding box. Caused by environmental noise or sensor errors during MVS.
+    Synthetic defect that adds random outlier points around the main object bounding box.
+
+    Simulates environmental noise or sensor errors during MVS.
     """
 
     name: str = "outlier_points"

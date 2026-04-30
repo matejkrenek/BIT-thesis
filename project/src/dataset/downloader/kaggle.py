@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: kaggle.py
+Responsibility: Downloader for datasets from Kaggle with automatic extraction and directory organization.
+"""
+
 from .base import BaseDownloader
 import kagglehub
 from core.logger import logger
@@ -7,7 +14,8 @@ import shutil
 
 class KaggleDownloader(BaseDownloader):
     """
-    Downloader for datasets from Kaggle.
+    Downloader for datasets from Kaggle with automatic extraction and directory organization.
+
     Args:
         local_dir (str): Local directory to save the dataset.
         remote_dir (str): Kaggle dataset identifier in the format "owner/dataset-name".

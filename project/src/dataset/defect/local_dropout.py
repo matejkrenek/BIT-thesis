@@ -1,11 +1,19 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: local_dropout.py
+Responsibility: Synthetic defect class that removes points within specified local regions to simulate small local holes.
+"""
+
 from .base import Defect
 import numpy as np
 
 
 class LocalDropout(Defect):
     """
-    LocalDropout defect that removes points within specified local regions. Simulates small local
-    holes typical for MVS caused by poor texture or reflective surfaces.
+    Synthetic defect that removes points within specified local regions.
+
+    Simulates small local holes typical for MVS caused by poor texture or reflective surfaces.
     """
 
     name: str = "local_dropout"

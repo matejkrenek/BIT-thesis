@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: zip_url.py
+Responsibility: Downloader for zip files from URLs with optional postprocessing callback and progress tracking.
+"""
+
 from .base import BaseDownloader
 from core.logger import logger
 import zipfile
@@ -12,7 +19,7 @@ from tqdm import tqdm
 
 class ZipUrlDownloader(BaseDownloader):
     """
-    Downloader for zip files from URLs with optional postprocessing callback.
+    Downloader for zip files from URLs with optional postprocessing callback and progress tracking.
 
     Args:
         local_dir (str): Local directory to save and extract the dataset.

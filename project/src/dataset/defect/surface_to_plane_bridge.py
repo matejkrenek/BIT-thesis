@@ -1,14 +1,19 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: surface_to_plane_bridge.py
+Responsibility: Synthetic defect class that adds bridge-like artifacts from the object surface toward a synthetic plane below the object.
+"""
+
 from .base import Defect
 import numpy as np
 
 
 class SurfaceToPlaneBridge(Defect):
     """
-    Adds thin bridge-like artifacts from the object surface toward a synthetic
-    plane below the object.
+    Synthetic defect that adds thin bridge-like artifacts from the object surface toward a synthetic plane below the object.
 
-    This mimics reconstruction failures where geometry gets incorrectly
-    connected to the support surface or floor.
+    Mimics reconstruction failures where geometry gets incorrectly connected to the support surface or floor.
     """
 
     name: str = "surface_to_plane_bridge"

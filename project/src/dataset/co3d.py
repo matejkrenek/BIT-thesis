@@ -2,12 +2,12 @@
 Author: Matěj Křenek (xkrenem00)
 Contact: xkrenem00@vutbr.cz
 File: co3d.py
-Responsibility: Dataset loader for CO3D multi-view 3D object reconstruction with CDN download support.
+Responsibility: Dataset loader for CO3D multi-view 3D object reconstruction with CDN download and preprocessing support.
 """
 
 import os
 import os.path as osp
-from typing import Callable, List, Optional, Union
+from typing import Callable, Optional, Union
 from tqdm import tqdm
 
 import torch
@@ -30,15 +30,23 @@ CDN links file: https://scontent.fprg4-1.fna.fbcdn.net/m1/v/t6/An_tlCbE1hnVIBR2L
 
 class CO3DDataset(InMemoryDataset):
     """
-    CO3D dataset loader for 3D object reconstruction from multi-view images.
+    Dataset loader for CO3D multi-view 3D object reconstruction.
 
     Args:
-        root: Root directory containing CO3D data.
-        categories: List of category names to include (default: all).
-        transform: Optional transform to apply to each sample.
-        pre_transform: Optional transform before saving to disk.
-        pre_filter: Optional filter before saving to disk.
-        force_reload: If True, clears processed data and reprocesses.
+        root (str): Root directory containing CO3D data.
+        categories (list[str] or str, optional): List of category names to include (default: all).
+        transform (callable, optional): Transform to apply to each sample.
+        pre_transform (callable, optional): Transform before saving to disk.
+        pre_filter (callable, optional): Filter before saving to disk.
+        force_reload (bool): If True, clears processed data and reprocesses.
+        samples_per_category (int): Number of samples per category to process (default: 20).
+
+    Each sample contains:
+        - images: List of image file paths
+        - masks: List of mask file paths
+        - category: Category name
+        - sample_id: Sample identifier
+        - sample_dir: Directory of the sample
     """
 
     category_ids = {
@@ -98,7 +106,7 @@ class CO3DDataset(InMemoryDataset):
     def __init__(
         self,
         root: str,
-        categories: Optional[Union[str, List[str]]] = None,
+        categories: Optional[Union[str, list[str]]] = None,
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
@@ -124,7 +132,7 @@ class CO3DDataset(InMemoryDataset):
             logger.info("Force reload requested; clearing processed directory.")
             self._remove_processed()
 
-        # If processed/ is empty → process automatically
+        # If processed/ is empty, process automatically
         if len(self.processed_file_names) == 0:
             logger.info("Processed dataset not found. Processing dataset now...")
             self.process()
@@ -133,58 +141,49 @@ class CO3DDataset(InMemoryDataset):
         self.files = sorted(os.listdir(self.processed_dir))
 
     @property
-    def raw_dir(self):
+    def raw_dir(self) -> str:
         return osp.join(self.root, "raw")
 
     @property
-    def processed_dir(self):
+    def processed_dir(self) -> str:
         return osp.join(self.root, "processed")
 
     @property
-    def raw_file_names(self) -> List[str]:
+    def raw_file_names(self) -> list[str]:
         return list(self.category_ids.keys())
 
     @property
-    def processed_file_names(self) -> List[str]:
+    def processed_file_names(self) -> list[str]:
         if not osp.exists(self.processed_dir):
             return []
         return [f for f in os.listdir(self.processed_dir) if f.endswith(".pt")]
 
-    def download_postprocess(self, extract_dir: Path):
+    def download_postprocess(self, extract_dir: Path) -> None:
         """
         Postprocessing callback to clean up CO3D dataset structure.
         Keeps only 'masks' and 'images' folders from the nested tv directory,
         removing all other files and folders.
         """
-        # Find the first folder inside extract_dir
         first_folder = None
         for item in extract_dir.iterdir():
             if item.is_dir():
                 first_folder = item
                 break
 
-        # Move content of first folder to extract_dir
         if first_folder:
-            # Iterate hierarchically and move only 'masks' and 'images' folders
+
             def process_directory(directory: Path):
                 for subitem in directory.iterdir():
                     if subitem.is_dir():
-                        # Check if this directory contains masks or images folders
                         has_masks_or_images = any(
                             child.is_dir() and child.name in ["masks", "images"]
                             for child in subitem.iterdir()
                         )
-
                         if has_masks_or_images:
-                            # This is a parent folder containing masks/images
                             dest_path = extract_dir / subitem.name
                             if dest_path.exists():
                                 shutil.rmtree(dest_path)
-
-                            # Copy the entire parent folder
                             shutil.copytree(str(subitem), str(dest_path))
-
-                            # Clean up the copied folder to keep only masks and images
                             for copied_item in dest_path.iterdir():
                                 if copied_item.is_dir() and copied_item.name not in [
                                     "masks",
@@ -193,59 +192,60 @@ class CO3DDataset(InMemoryDataset):
                                     shutil.rmtree(copied_item)
                                 elif copied_item.is_file():
                                     copied_item.unlink()
-
-                            # Remove the original directory
                             shutil.rmtree(subitem)
                         else:
-                            # Recursively process subdirectories
                             process_directory(subitem)
-                            # Remove the directory after processing
                             if subitem.exists():
                                 shutil.rmtree(subitem)
                     else:
-                        # Remove files
                         subitem.unlink()
 
             process_directory(first_folder)
-
             if first_folder.exists():
                 first_folder.rmdir()
 
-    def download(self):
+    def download(self) -> None:
+        """
+        Download all selected categories using ZipUrlDownloader.
+        """
         for category in self.categories:
             downloader = ZipUrlDownloader(
                 local_dir=osp.join(self.raw_dir, category),
                 remote_dir=self.category_ids[category],
                 postprocess_callback=self.download_postprocess,
             )
-
             downloader.download()
 
-    def len(self):
+    def len(self) -> int:
+        """Return the number of processed samples."""
         return len(self.files)
 
-    def get(self, idx):
+    def get(self, idx: int) -> Data:
+        """Get a processed sample by index."""
         file_path = osp.join(self.processed_dir, self.files[idx])
         data = torch.load(file_path, weights_only=False)
-
         if self.transform:
             data = self.transform(data)
         return data
 
-    def _remove_processed(self):
+    def _remove_processed(self) -> None:
+        """Remove all processed files from the processed directory."""
         if osp.exists(self.processed_dir):
             for f in os.listdir(self.processed_dir):
                 os.remove(osp.join(self.processed_dir, f))
 
-    def process(self):
+    def process(self) -> None:
+        """
+        Process raw CO3D data into torch_geometric Data objects and save to disk.
+        Each sample contains image and mask file paths, category, and sample metadata.
+        """
         os.makedirs(self.processed_dir, exist_ok=True)
-
         logger.info(f"Processing categories: {self.categories}")
+
         for category in self.categories:
             logger.info(f"Processing category: {category}")
             category_dir = osp.join(self.raw_dir, category)
             samples = os.listdir(category_dir)
-
             samples = np.random.choice(
                 os.listdir(category_dir),
                 size=(
@@ -261,18 +261,13 @@ class CO3DDataset(InMemoryDataset):
 
             for sample in tqdm(samples, desc=f"Processing {category}", leave=False):
                 sample_dir = osp.join(category_dir, sample)
-
                 try:
-
                     images_dir = osp.join(sample_dir, "images")
                     masks_dir = osp.join(sample_dir, "masks")
-
                     image_files = sorted(os.listdir(images_dir))
                     mask_files = sorted(os.listdir(masks_dir))
-
                     images = [osp.join(images_dir, f) for f in image_files]
                     masks = [osp.join(masks_dir, f) for f in mask_files]
-
                     data = Data(
                         images=images,
                         masks=masks,
@@ -280,14 +275,10 @@ class CO3DDataset(InMemoryDataset):
                         sample_id=sample,
                         sample_dir=sample_dir,
                     )
-
                     if self.pre_filter is not None and not self.pre_filter(data):
                         continue
-
                     if self.pre_transform is not None:
                         data = self.pre_transform(data)
-
-                    # Save each sample to disk → memory safe
                     out_file = osp.join(
                         self.processed_dir,
                         f"{category}_{sample}.pt",
