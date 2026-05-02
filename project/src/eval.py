@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -780,15 +781,17 @@ def _run_pipeline_preprocess(
     clean_gt_np: np.ndarray,
     seed: int,
     device: torch.device,
-) -> Dict[str, np.ndarray]:
+) -> Tuple[Dict[str, np.ndarray], Dict[str, float]]:
     current = np.asarray(defected_np, dtype=np.float32)
     reference = np.asarray(clean_gt_np, dtype=np.float32)
 
     stages: Dict[str, np.ndarray] = {
         "input": current.copy(),
     }
+    timings: Dict[str, float] = {}
 
     if runtime.run_outlier_before and runtime.outlier_model is not None:
+        t0 = time.perf_counter()
         current, reference = _apply_outlier_filter(
             cloud_np=current,
             reference_np=reference,
@@ -805,9 +808,11 @@ def _run_pipeline_preprocess(
             threshold=runtime.outlier_threshold,
             stage_label="eval_before",
         )
+        timings["outlier_1"] = float(time.perf_counter() - t0)
         stages["outlier_1"] = current.copy()
 
     if runtime.run_denoise and runtime.denoise_model is not None:
+        t0 = time.perf_counter()
         denoise_dataset = _build_patch_dataset(
             defected_np=current,
             original_np=reference,
@@ -845,9 +850,11 @@ def _run_pipeline_preprocess(
         mean_nei_disp = displacement_vectors[nearest_neighbours].mean(1)
         denoised_full = shape_properties - mean_nei_disp
         current = denoised_full.numpy().astype(np.float32)
+        timings["denoise"] = float(time.perf_counter() - t0)
         stages["denoise"] = current.copy()
 
     if runtime.run_outlier_after and runtime.outlier_model is not None:
+        t0 = time.perf_counter()
         current, reference = _apply_outlier_filter(
             cloud_np=current,
             reference_np=reference,
@@ -864,14 +871,17 @@ def _run_pipeline_preprocess(
             threshold=runtime.outlier_threshold,
             stage_label="eval_after",
         )
+        timings["outlier_2"] = float(time.perf_counter() - t0)
         stages["outlier_2"] = current.copy()
 
+    t0 = time.perf_counter()
     current_t = torch.from_numpy(current).unsqueeze(0).to(device=device)
     fps_k = min(runtime.fps_points, int(current_t.shape[1]))
     fps_t, _ = sample_farthest_points(current_t, K=fps_k)
     stages["fps"] = fps_t[0].detach().cpu().numpy().astype(np.float32)
+    timings["fps"] = float(time.perf_counter() - t0)
 
-    return stages
+    return stages, timings
 
 
 def _resolve_run_dir(args, default_output_root: Path) -> Path:
@@ -1199,11 +1209,16 @@ def main() -> None:
         )
 
         model_pred_batches: Dict[str, torch.Tensor] = {}
+        model_pred_time_per_sample: Dict[str, float] = {}
         if run_scenario_a:
             for spec, model in model_entries:
+                t_pred0 = time.perf_counter()
                 pred = _predict(
                     model, spec.model_type, defected_for_model, target_points
                 )
+                pred_elapsed = float(time.perf_counter() - t_pred0)
+                per_sample_elapsed = pred_elapsed / max(1, int(batch_size_actual))
+                model_pred_time_per_sample[spec.name] = per_sample_elapsed
                 model_pred_batches[spec.name] = pred.detach().cpu()
 
         for i, sample_idx in enumerate(batch_indices_cpu):
@@ -1224,7 +1239,7 @@ def main() -> None:
                     )
 
                 defected_full_i = padded_defected[i, : int(defected_lengths[i].item())]
-                pipeline_stages = _run_pipeline_preprocess(
+                pipeline_stages, pipeline_stage_timings = _run_pipeline_preprocess(
                     runtime=pipeline_runtime,
                     defected_np=defected_full_i.detach()
                     .cpu()
@@ -1234,6 +1249,15 @@ def main() -> None:
                     seed=int(args.seed) + int(sample_idx),
                     device=cfg.device,
                 )
+
+                for stage_name, seconds in pipeline_stage_timings.items():
+                    per_sample_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": f"T::{stage_name}",
+                            "metrics": {"seconds": float(seconds)},
+                        }
+                    )
 
                 gt_fps_points = min(
                     pipeline_runtime.fps_points, int(original_i.shape[0])
@@ -1291,6 +1315,7 @@ def main() -> None:
                     )
             else:
                 pipeline_stages = {}
+                pipeline_stage_timings = {}
                 gt_fps_i = None
 
             sample_predictions: Dict[str, torch.Tensor] = {}
@@ -1324,6 +1349,18 @@ def main() -> None:
                         gt=original_i,
                         metrics=metrics,
                         density_alpha=args.density_alpha,
+                    )
+
+                    per_sample_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": f"T::A::{spec.name}",
+                            "metrics": {
+                                "seconds": float(
+                                    model_pred_time_per_sample.get(spec.name, 0.0)
+                                )
+                            },
+                        }
                     )
 
                     per_sample_records.append(
@@ -1378,12 +1415,23 @@ def main() -> None:
                     .to(cfg.device)
                 )
                 for spec, model in model_entries:
+                    t_pred0 = time.perf_counter()
                     pred_c = _predict(
                         model,
                         spec.model_type,
                         completion_input_t,
                         target_points=int(gt_fps_i.shape[0]),
                     )[0]
+                    pred_c_elapsed = float(time.perf_counter() - t_pred0)
+
+                    per_sample_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": f"T::C::{spec.name}",
+                            "metrics": {"seconds": pred_c_elapsed},
+                        }
+                    )
+
                     c_metrics = _compute_metric_values_single(
                         pred=pred_c,
                         gt=gt_fps_i,
@@ -1414,8 +1462,9 @@ def main() -> None:
                     "per_model": sample_segmented,
                 }
 
-    aggregate_rows = _compute_aggregate_table(per_sample_records, metrics)
-    _save_per_sample_csv(metrics_csv, per_sample_records, metrics)
+    main_metric_cols = _metric_columns(per_sample_records, metrics)
+    aggregate_rows = _compute_aggregate_table(per_sample_records, main_metric_cols)
+    _save_per_sample_csv(metrics_csv, per_sample_records, main_metric_cols)
     _save_aggregate_csv(summary_csv, aggregate_rows)
 
     segmented_metric_cols = _metric_columns(segmented_records, [])
