@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import torch
 from pytorch3d.ops import knn_points, sample_farthest_points
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import Subset
 from tqdm import tqdm
 
 from core import (
@@ -22,6 +24,14 @@ from core import (
     logger,
     parse_and_bootstrap,
 )
+from core.inference_pipeline import (
+    MODEL_PRESETS,
+    _apply_outlier_filter,
+    _build_patch_dataset,
+    _load_checkpoint_flexible,
+    _predict_denoised_centers,
+    _safe_first_patch_radius,
+)
 from dataset import ModelNetDataset, ShapeNetDataset
 from metrics import (
     chamfer_distance_metric,
@@ -31,7 +41,6 @@ from metrics import (
 from models import PCN, PoinTr
 from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
 
-
 SUPPORTED_METRICS = ("chamfer", "hausdorff", "dcd")
 
 
@@ -40,6 +49,42 @@ class EvalModelSpec:
     name: str
     model_type: str
     checkpoint: Path
+
+
+@dataclass
+class PipelineRuntime:
+    denoise_model: Optional[torch.nn.Module]
+    outlier_model: Optional[torch.nn.Module]
+    run_denoise: bool
+    run_outlier_before: bool
+    run_outlier_after: bool
+    patch_radius: float
+    points_per_patch: int
+    batch_size: int
+    workers: int
+    cache_capacity: int
+    n_neighbours: int
+    outlier_threshold: float
+    use_pca: bool
+    patch_center: str
+    point_tuple: int
+    use_point_stn: bool
+    fps_points: int
+
+
+def _compute_metric_values_single(
+    pred: torch.Tensor,
+    gt: torch.Tensor,
+    metrics: Sequence[str],
+    density_alpha: float,
+) -> Dict[str, float]:
+    values = _compute_metric_values_batch(
+        pred.unsqueeze(0),
+        gt.unsqueeze(0),
+        metrics=metrics,
+        density_alpha=density_alpha,
+    )
+    return {k: float(v[0].item()) for k, v in values.items()}
 
 
 def _parse_csv(value: Optional[str]) -> Optional[List[str]]:
@@ -578,6 +623,257 @@ def _build_dataset(args, data_root: Path):
     )
 
 
+def _resolve_clean_gt_for_sample(
+    *,
+    full_dataset,
+    test_dataset,
+    sample_idx: int,
+    fallback_gt: torch.Tensor,
+) -> torch.Tensor:
+    if not isinstance(test_dataset, Subset):
+        return fallback_gt
+
+    if not hasattr(full_dataset, "dataset"):
+        return fallback_gt
+
+    base_dataset = getattr(full_dataset, "dataset")
+    global_idx = int(test_dataset.indices[sample_idx])
+
+    try:
+        base_item = base_dataset[global_idx]
+    except Exception:
+        return fallback_gt
+
+    if hasattr(base_item, "original_pos"):
+        return torch.as_tensor(base_item.original_pos).float().to(fallback_gt.device)
+    if isinstance(base_item, dict) and "original_pos" in base_item:
+        return torch.as_tensor(base_item["original_pos"]).float().to(fallback_gt.device)
+
+    return fallback_gt
+
+
+def _build_pipeline_runtime(args, cfg) -> Optional[PipelineRuntime]:
+    run_denoise = bool(args.run_denoise)
+    run_outlier_before = bool(args.run_outlier_before)
+    run_outlier_after = bool(args.run_outlier_after)
+
+    if not (run_denoise or run_outlier_before or run_outlier_after):
+        return None
+
+    denoise_model = None
+    outlier_model = None
+
+    denoise_trainopt = None
+    denoise_params_ckpt = (
+        Path(args.denoise_params_checkpoint).expanduser().resolve()
+        if args.denoise_params_checkpoint
+        else None
+    )
+    if denoise_params_ckpt and denoise_params_ckpt.exists():
+        denoise_trainopt = torch.load(
+            denoise_params_ckpt,
+            map_location="cpu",
+            weights_only=False,
+        )
+
+    points_per_patch = int(args.pipeline_points_per_patch)
+    if points_per_patch <= 0:
+        points_per_patch = int(
+            getattr(
+                denoise_trainopt,
+                "points_per_patch",
+                MODEL_PRESETS["denoise"]["model_params"]["num_points"],
+            )
+        )
+
+    patch_radius = float(args.pipeline_patch_radius)
+    if patch_radius <= 0.0:
+        patch_radius = _safe_first_patch_radius(
+            getattr(denoise_trainopt, "patch_radius", [0.05]),
+            0.05,
+        )
+
+    use_pca = bool(getattr(denoise_trainopt, "use_pca", False))
+    patch_center = str(getattr(denoise_trainopt, "patch_center", "point"))
+    point_tuple = int(getattr(denoise_trainopt, "point_tuple", 1))
+    use_point_stn = bool(getattr(denoise_trainopt, "use_point_stn", True))
+    use_feat_stn = bool(getattr(denoise_trainopt, "use_feat_stn", True))
+    sym_op = str(getattr(denoise_trainopt, "sym_op", "max"))
+
+    if run_denoise:
+        if not args.denoise_model_checkpoint:
+            raise ValueError("--run-denoise requires --denoise-model-checkpoint")
+
+        denoise_ckpt = Path(args.denoise_model_checkpoint).expanduser().resolve()
+        if not denoise_ckpt.exists():
+            raise FileNotFoundError(f"Missing denoise checkpoint: {denoise_ckpt}")
+
+        denoise_params = dict(MODEL_PRESETS["denoise"]["model_params"])
+        denoise_params.update(
+            {
+                "num_points": int(points_per_patch),
+                "use_point_stn": use_point_stn,
+                "use_feat_stn": use_feat_stn,
+                "sym_op": sym_op,
+                "point_tuple": point_tuple,
+            }
+        )
+        denoise_model = create_model(
+            "pointcleannet",
+            denoise_params,
+            device=cfg.device,
+        )
+        _load_checkpoint_flexible(denoise_model, denoise_ckpt, cfg.device)
+        denoise_model.eval()
+
+    if run_outlier_before or run_outlier_after:
+        if not args.outlier_model_checkpoint:
+            raise ValueError("Outlier stages require --outlier-model-checkpoint")
+
+        outlier_ckpt = Path(args.outlier_model_checkpoint).expanduser().resolve()
+        if not outlier_ckpt.exists():
+            raise FileNotFoundError(f"Missing outlier checkpoint: {outlier_ckpt}")
+
+        outlier_params = dict(MODEL_PRESETS["outlier"]["model_params"])
+        outlier_params.update(
+            {
+                "num_points": int(points_per_patch),
+                "use_point_stn": use_point_stn,
+                "use_feat_stn": use_feat_stn,
+                "sym_op": sym_op,
+                "point_tuple": point_tuple,
+            }
+        )
+        outlier_model = create_model(
+            "pointcleannet_outliers",
+            outlier_params,
+            device=cfg.device,
+        )
+        _load_checkpoint_flexible(outlier_model, outlier_ckpt, cfg.device)
+        outlier_model.eval()
+
+    return PipelineRuntime(
+        denoise_model=denoise_model,
+        outlier_model=outlier_model,
+        run_denoise=run_denoise,
+        run_outlier_before=run_outlier_before,
+        run_outlier_after=run_outlier_after,
+        patch_radius=float(patch_radius),
+        points_per_patch=int(points_per_patch),
+        batch_size=max(1, int(args.pipeline_batch_size)),
+        workers=max(0, int(args.pipeline_workers)),
+        cache_capacity=max(1, int(args.pipeline_cache_capacity)),
+        n_neighbours=max(1, int(args.pipeline_n_neighbours)),
+        outlier_threshold=float(args.pipeline_outlier_threshold),
+        use_pca=use_pca,
+        patch_center=patch_center,
+        point_tuple=point_tuple,
+        use_point_stn=use_point_stn,
+        fps_points=max(1, int(args.pipeline_fps_points)),
+    )
+
+
+def _run_pipeline_preprocess(
+    *,
+    runtime: PipelineRuntime,
+    defected_np: np.ndarray,
+    clean_gt_np: np.ndarray,
+    seed: int,
+    device: torch.device,
+) -> Dict[str, np.ndarray]:
+    current = np.asarray(defected_np, dtype=np.float32)
+    reference = np.asarray(clean_gt_np, dtype=np.float32)
+
+    stages: Dict[str, np.ndarray] = {
+        "input": current.copy(),
+    }
+
+    if runtime.run_outlier_before and runtime.outlier_model is not None:
+        current, reference = _apply_outlier_filter(
+            cloud_np=current,
+            reference_np=reference,
+            outlier_model=runtime.outlier_model,
+            patch_radius=runtime.patch_radius,
+            points_per_patch=runtime.points_per_patch,
+            seed=int(seed),
+            cache_capacity=runtime.cache_capacity,
+            use_pca=runtime.use_pca,
+            patch_center=runtime.patch_center,
+            point_tuple=runtime.point_tuple,
+            batch_size=runtime.batch_size,
+            workers=runtime.workers,
+            threshold=runtime.outlier_threshold,
+            stage_label="eval_before",
+        )
+        stages["outlier_1"] = current.copy()
+
+    if runtime.run_denoise and runtime.denoise_model is not None:
+        denoise_dataset = _build_patch_dataset(
+            defected_np=current,
+            original_np=reference,
+            patch_radius=runtime.patch_radius,
+            points_per_patch=runtime.points_per_patch,
+            seed=int(seed),
+            cache_capacity=runtime.cache_capacity,
+            shape_name="eval",
+            use_pca=runtime.use_pca,
+            patch_center=runtime.patch_center,
+            point_tuple=runtime.point_tuple,
+        )
+        denoise_loader = DataLoader(
+            denoise_dataset,
+            batch_size=runtime.batch_size,
+            num_workers=runtime.workers,
+        )
+        shape_properties = _predict_denoised_centers(
+            model=runtime.denoise_model,
+            dataloader=denoise_loader,
+            device=device,
+            use_pca=runtime.use_pca,
+            use_point_stn=runtime.use_point_stn,
+            total_patches=int(denoise_dataset.shape_patch_count[0]),
+            progress_desc="eval_denoise",
+        )
+
+        shp = denoise_dataset.shape_cache.get(0)
+        pts = torch.tensor(shp.pts, dtype=torch.float32)
+        n_nei = max(1, min(runtime.n_neighbours, int(pts.shape[0])))
+        nearest_neighbours = torch.tensor(
+            shp.kdtree.query(shp.pts, n_nei)[1], dtype=torch.long
+        )
+        displacement_vectors = shape_properties - pts
+        mean_nei_disp = displacement_vectors[nearest_neighbours].mean(1)
+        denoised_full = shape_properties - mean_nei_disp
+        current = denoised_full.numpy().astype(np.float32)
+        stages["denoise"] = current.copy()
+
+    if runtime.run_outlier_after and runtime.outlier_model is not None:
+        current, reference = _apply_outlier_filter(
+            cloud_np=current,
+            reference_np=reference,
+            outlier_model=runtime.outlier_model,
+            patch_radius=runtime.patch_radius,
+            points_per_patch=runtime.points_per_patch,
+            seed=int(seed),
+            cache_capacity=runtime.cache_capacity,
+            use_pca=runtime.use_pca,
+            patch_center=runtime.patch_center,
+            point_tuple=runtime.point_tuple,
+            batch_size=runtime.batch_size,
+            workers=runtime.workers,
+            threshold=runtime.outlier_threshold,
+            stage_label="eval_after",
+        )
+        stages["outlier_2"] = current.copy()
+
+    current_t = torch.from_numpy(current).unsqueeze(0).to(device=device)
+    fps_k = min(runtime.fps_points, int(current_t.shape[1]))
+    fps_t, _ = sample_farthest_points(current_t, K=fps_k)
+    stages["fps"] = fps_t[0].detach().cpu().numpy().astype(np.float32)
+
+    return stages
+
+
 def _resolve_run_dir(args, default_output_root: Path) -> Path:
     output_root = Path(args.output_dir)
     if not output_root.is_absolute():
@@ -619,6 +915,15 @@ def _build_arg_schema() -> List[ArgSpec]:
             },
         ),
         ArgSpec(("--metrics",), {"type": str, "default": "chamfer,hausdorff,dcd"}),
+        ArgSpec(
+            ("--scenario",),
+            {
+                "type": str,
+                "default": "a",
+                "choices": ["a", "b", "c", "all"],
+                "help": "Evaluation scenario: a=completion on dataset input, b=pipeline stages, c=completion on pipeline output, all=run all scenarios.",
+            },
+        ),
         ArgSpec(("--density-alpha",), {"type": float, "default": 1000.0}),
         ArgSpec(("--segment-threshold",), {"type": float, "default": 0.02}),
         ArgSpec(("--batch-size",), {"type": int, "default": 32}),
@@ -677,6 +982,41 @@ def _build_arg_schema() -> List[ArgSpec]:
         ArgSpec(("--dense-num-points",), {"type": int, "default": 100000}),
         ArgSpec(("--normalize",), {"action": "store_true", "default": True}),
         ArgSpec(("--no-normalize",), {"dest": "normalize", "action": "store_false"}),
+        ArgSpec(("--run-denoise",), {"action": "store_true", "default": False}),
+        ArgSpec(("--run-outlier-before",), {"action": "store_true", "default": False}),
+        ArgSpec(("--run-outlier-after",), {"action": "store_true", "default": False}),
+        ArgSpec(
+            ("--denoise-model-checkpoint",),
+            {
+                "type": str,
+                "default": "",
+                "help": "Checkpoint path for pointcleannet denoising model.",
+            },
+        ),
+        ArgSpec(
+            ("--denoise-params-checkpoint",),
+            {
+                "type": str,
+                "default": str(MODEL_PRESETS["denoise"]["params_checkpoint"]),
+                "help": "Optional params checkpoint for denoise defaults.",
+            },
+        ),
+        ArgSpec(
+            ("--outlier-model-checkpoint",),
+            {
+                "type": str,
+                "default": "",
+                "help": "Checkpoint path for pointcleannet_outliers model.",
+            },
+        ),
+        ArgSpec(("--pipeline-points-per-patch",), {"type": int, "default": 0}),
+        ArgSpec(("--pipeline-patch-radius",), {"type": float, "default": 0.0}),
+        ArgSpec(("--pipeline-batch-size",), {"type": int, "default": 128}),
+        ArgSpec(("--pipeline-workers",), {"type": int, "default": 1}),
+        ArgSpec(("--pipeline-cache-capacity",), {"type": int, "default": 100}),
+        ArgSpec(("--pipeline-n-neighbours",), {"type": int, "default": 100}),
+        ArgSpec(("--pipeline-outlier-threshold",), {"type": float, "default": 0.6}),
+        ArgSpec(("--pipeline-fps-points",), {"type": int, "default": 10000}),
     ]
 
 
@@ -688,7 +1028,21 @@ def main() -> None:
     )
 
     metrics = _parse_metrics(args.metrics)
-    model_specs = _parse_model_specs(args.model_specs)
+    scenario = str(args.scenario).lower()
+    run_scenario_a = scenario in {"a", "all"}
+    run_scenario_b = scenario in {"b", "all"}
+    run_scenario_c = scenario in {"c", "all"}
+
+    if run_scenario_a or run_scenario_c:
+        model_specs = _parse_model_specs(args.model_specs)
+    else:
+        model_specs = _parse_model_specs(args.model_specs) if args.model_specs else []
+
+    if (run_scenario_b or run_scenario_c) and args.mode != "advanced":
+        logger.warning(
+            "Scenarios B/C are designed for advanced dataset mode (current mode={mode}).",
+            mode=args.mode,
+        )
 
     data_root = (
         Path(args.data_root).expanduser().resolve() if args.data_root else cfg.data_dir
@@ -714,11 +1068,19 @@ def main() -> None:
     if len(dataset) == 0:
         raise RuntimeError("Dataset is empty after loading")
 
+    eval_batch_size = int(args.batch_size)
+    if args.mode == "advanced" and eval_batch_size > 1:
+        logger.warning(
+            "Advanced dataset can contain variable-size original clouds; forcing eval batch size from {src} to 1.",
+            src=eval_batch_size,
+        )
+        eval_batch_size = 1
+
     _, _, test_loader = create_train_val_test_dataloaders(
         dataset,
         train_ratio=0.99,
         val_ratio=0.009,
-        batch_size=args.batch_size,
+        batch_size=eval_batch_size,
         seed=args.seed,
         num_workers=args.num_workers,
         pin_memory=True,
@@ -726,6 +1088,39 @@ def main() -> None:
 
     test_dataset = test_loader.dataset
     logger.info("Test split size: {size}", size=len(test_dataset))
+
+    pipeline_runtime = _build_pipeline_runtime(args, cfg)
+    if pipeline_runtime is None and (run_scenario_b or run_scenario_c):
+        pipeline_runtime = PipelineRuntime(
+            denoise_model=None,
+            outlier_model=None,
+            run_denoise=False,
+            run_outlier_before=False,
+            run_outlier_after=False,
+            patch_radius=(
+                float(args.pipeline_patch_radius)
+                if float(args.pipeline_patch_radius) > 0
+                else 0.05
+            ),
+            points_per_patch=max(
+                1,
+                (
+                    int(args.pipeline_points_per_patch)
+                    if int(args.pipeline_points_per_patch) > 0
+                    else 500
+                ),
+            ),
+            batch_size=max(1, int(args.pipeline_batch_size)),
+            workers=max(0, int(args.pipeline_workers)),
+            cache_capacity=max(1, int(args.pipeline_cache_capacity)),
+            n_neighbours=max(1, int(args.pipeline_n_neighbours)),
+            outlier_threshold=float(args.pipeline_outlier_threshold),
+            use_pca=False,
+            patch_center="point",
+            point_tuple=1,
+            use_point_stn=True,
+            fps_points=max(1, int(args.pipeline_fps_points)),
+        )
 
     if args.sample_indices:
         chosen_indices = _parse_indices(args.sample_indices)
@@ -803,101 +1198,209 @@ def main() -> None:
             lengths=defected_lengths,
         )
 
-        defected_metric_batch = _compute_metric_values_batch(
-            defected_for_model,
-            originals,
-            metrics=metrics,
-            density_alpha=args.density_alpha,
-            pred_lengths=defected_lengths,
-        )
-
-        model_metric_batches: Dict[str, Dict[str, torch.Tensor]] = {}
         model_pred_batches: Dict[str, torch.Tensor] = {}
-        for spec, model in model_entries:
-            pred = _predict(model, spec.model_type, defected_for_model, target_points)
-            model_pred_batches[spec.name] = pred.detach().cpu()
-            model_metric_batches[spec.name] = _compute_metric_values_batch(
-                pred,
-                originals,
-                metrics=metrics,
-                density_alpha=args.density_alpha,
-            )
+        if run_scenario_a:
+            for spec, model in model_entries:
+                pred = _predict(
+                    model, spec.model_type, defected_for_model, target_points
+                )
+                model_pred_batches[spec.name] = pred.detach().cpu()
 
         for i, sample_idx in enumerate(batch_indices_cpu):
             original_i = originals[i]
+            if args.mode == "advanced":
+                original_i = _resolve_clean_gt_for_sample(
+                    full_dataset=dataset,
+                    test_dataset=test_dataset,
+                    sample_idx=sample_idx,
+                    fallback_gt=original_i,
+                )
             defected_i = defected_for_model[i]
-            reference = _build_segment_reference(
-                original=original_i,
-                defected=defected_i,
-                segment_threshold=args.segment_threshold,
-            )
 
-            defected_metric_values = {
-                metric_name: float(defected_metric_batch[metric_name][i].item())
-                for metric_name in metrics
-                if metric_name in defected_metric_batch
-            }
-            per_sample_records.append(
-                {
-                    "sample_index": sample_idx,
-                    "model": "Defected",
-                    "metrics": defected_metric_values,
-                }
-            )
+            if run_scenario_b or run_scenario_c:
+                if pipeline_runtime is None:
+                    raise RuntimeError(
+                        "Internal error: pipeline_runtime is not initialized"
+                    )
+
+                defected_full_i = padded_defected[i, : int(defected_lengths[i].item())]
+                pipeline_stages = _run_pipeline_preprocess(
+                    runtime=pipeline_runtime,
+                    defected_np=defected_full_i.detach()
+                    .cpu()
+                    .numpy()
+                    .astype(np.float32),
+                    clean_gt_np=original_i.detach().cpu().numpy().astype(np.float32),
+                    seed=int(args.seed) + int(sample_idx),
+                    device=cfg.device,
+                )
+
+                gt_fps_points = min(
+                    pipeline_runtime.fps_points, int(original_i.shape[0])
+                )
+                gt_fps_i, _ = sample_farthest_points(
+                    original_i.unsqueeze(0),
+                    K=gt_fps_points,
+                )
+                gt_fps_i = gt_fps_i[0]
+
+                if run_scenario_b:
+                    scenario_b_rows: List[Tuple[str, str]] = [("B::Input", "input")]
+                    if "outlier_1" in pipeline_stages:
+                        scenario_b_rows.append(("B::OutlierRemoval#1", "outlier_1"))
+                    if "denoise" in pipeline_stages:
+                        scenario_b_rows.append(("B::Denoising", "denoise"))
+                    if "outlier_2" in pipeline_stages:
+                        scenario_b_rows.append(("B::OutlierRemoval#2", "outlier_2"))
+
+                    for row_name, stage_key in scenario_b_rows:
+                        stage_t = (
+                            torch.from_numpy(pipeline_stages[stage_key])
+                            .float()
+                            .to(cfg.device)
+                        )
+                        stage_metrics = _compute_metric_values_single(
+                            pred=stage_t,
+                            gt=original_i,
+                            metrics=metrics,
+                            density_alpha=args.density_alpha,
+                        )
+                        per_sample_records.append(
+                            {
+                                "sample_index": sample_idx,
+                                "model": row_name,
+                                "metrics": stage_metrics,
+                            }
+                        )
+
+                    fps_t = (
+                        torch.from_numpy(pipeline_stages["fps"]).float().to(cfg.device)
+                    )
+                    fps_metrics = _compute_metric_values_single(
+                        pred=fps_t,
+                        gt=gt_fps_i,
+                        metrics=metrics,
+                        density_alpha=args.density_alpha,
+                    )
+                    per_sample_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": "B::FPS10k",
+                            "metrics": fps_metrics,
+                        }
+                    )
+            else:
+                pipeline_stages = {}
+                gt_fps_i = None
 
             sample_predictions: Dict[str, torch.Tensor] = {}
             sample_metrics: Dict[str, Dict[str, float]] = {}
             sample_segmented: Dict[str, Dict[str, object]] = {}
-            for spec in model_specs:
-                model_metric_values = {
-                    metric_name: float(
-                        model_metric_batches[spec.name][metric_name][i].item()
-                    )
-                    for metric_name in metrics
-                    if metric_name in model_metric_batches[spec.name]
-                }
+            defected_metric_values: Dict[str, float] = {}
 
-                per_sample_records.append(
-                    {
-                        "sample_index": sample_idx,
-                        "model": spec.name,
-                        "metrics": model_metric_values,
-                    }
-                )
-
-                current_pred_i = model_pred_batches[spec.name][i].to(cfg.device)
-                pred_split = _split_current_by_reference(
-                    current=current_pred_i,
+            if run_scenario_a:
+                reference = _build_segment_reference(
                     original=original_i,
-                    repaired_target_mask=reference["repaired_target_mask"],
+                    defected=defected_i,
+                    segment_threshold=args.segment_threshold,
                 )
-                pred_segment_metrics = _compute_segmented_metrics(
-                    original=original_i,
-                    current=current_pred_i,
-                    reference=reference,
-                    current_split=pred_split,
+                defected_metric_values = _compute_metric_values_single(
+                    pred=defected_i,
+                    gt=original_i,
                     metrics=metrics,
                     density_alpha=args.density_alpha,
                 )
-                segmented_records.append(
+                per_sample_records.append(
                     {
                         "sample_index": sample_idx,
-                        "model": spec.name,
-                        "metrics": pred_segment_metrics,
+                        "model": "A::Defected",
+                        "metrics": defected_metric_values,
                     }
                 )
 
-                sample_metrics[spec.name] = model_metric_values
-                sample_predictions[spec.name] = model_pred_batches[spec.name][i]
-                sample_segmented[spec.name] = {
-                    "current_repaired": pred_split["current_repaired"].detach().cpu(),
-                    "current_preserved": pred_split["current_preserved"].detach().cpu(),
-                    "metrics": pred_segment_metrics,
-                }
+                for spec in model_specs:
+                    model_metric_values = _compute_metric_values_single(
+                        pred=model_pred_batches[spec.name][i].to(cfg.device),
+                        gt=original_i,
+                        metrics=metrics,
+                        density_alpha=args.density_alpha,
+                    )
 
-            if sample_idx in selected_set:
+                    per_sample_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": f"A::{spec.name}",
+                            "metrics": model_metric_values,
+                        }
+                    )
+
+                    current_pred_i = model_pred_batches[spec.name][i].to(cfg.device)
+                    pred_split = _split_current_by_reference(
+                        current=current_pred_i,
+                        original=original_i,
+                        repaired_target_mask=reference["repaired_target_mask"],
+                    )
+                    pred_segment_metrics = _compute_segmented_metrics(
+                        original=original_i,
+                        current=current_pred_i,
+                        reference=reference,
+                        current_split=pred_split,
+                        metrics=metrics,
+                        density_alpha=args.density_alpha,
+                    )
+                    segmented_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": f"A::{spec.name}",
+                            "metrics": pred_segment_metrics,
+                        }
+                    )
+
+                    sample_metrics[spec.name] = model_metric_values
+                    sample_predictions[spec.name] = model_pred_batches[spec.name][i]
+                    sample_segmented[spec.name] = {
+                        "current_repaired": pred_split["current_repaired"]
+                        .detach()
+                        .cpu(),
+                        "current_preserved": pred_split["current_preserved"]
+                        .detach()
+                        .cpu(),
+                        "metrics": pred_segment_metrics,
+                    }
+
+            if run_scenario_c:
+                if gt_fps_i is None:
+                    raise RuntimeError("Scenario C requires pipeline FPS ground truth")
+                completion_input_t = (
+                    torch.from_numpy(pipeline_stages["fps"])
+                    .float()
+                    .unsqueeze(0)
+                    .to(cfg.device)
+                )
+                for spec, model in model_entries:
+                    pred_c = _predict(
+                        model,
+                        spec.model_type,
+                        completion_input_t,
+                        target_points=int(gt_fps_i.shape[0]),
+                    )[0]
+                    c_metrics = _compute_metric_values_single(
+                        pred=pred_c,
+                        gt=gt_fps_i,
+                        metrics=metrics,
+                        density_alpha=args.density_alpha,
+                    )
+                    per_sample_records.append(
+                        {
+                            "sample_index": sample_idx,
+                            "model": f"C::{spec.name}",
+                            "metrics": c_metrics,
+                        }
+                    )
+
+            if run_scenario_a and sample_idx in selected_set:
                 selected_payload[sample_idx] = {
-                    "original": originals[i].detach().cpu(),
+                    "original": original_i.detach().cpu(),
                     "defected": defected_for_model[i].detach().cpu(),
                     "defected_metrics": defected_metric_values,
                     "predictions": sample_predictions,
@@ -924,6 +1427,18 @@ def main() -> None:
         segmented_metrics_csv, segmented_records, segmented_metric_cols
     )
     _save_aggregate_csv(segmented_summary_csv, segmented_aggregate_rows)
+
+    if not run_scenario_a:
+        logger.info("Scenario A disabled; skipping completion galleries.")
+        logger.info("Saved per-sample metrics to {path}", path=metrics_csv)
+        logger.info("Saved aggregate summary to {path}", path=summary_csv)
+        logger.info(
+            "Saved segmented per-sample metrics to {path}", path=segmented_metrics_csv
+        )
+        logger.info(
+            "Saved segmented aggregate summary to {path}", path=segmented_summary_csv
+        )
+        return
 
     pointclouds = []
     descriptions = []
