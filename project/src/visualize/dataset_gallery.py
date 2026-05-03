@@ -41,6 +41,7 @@ class GalleryConfig:
     wrap_caption_chars: int = 100
     sample_title_fontsize: int = 7
     badge_fontsize: float = 2.8
+    badge_detail_fontsize: Optional[float] = None
     border_color: str = "#CCD1D9"
     border_linewidth: float = 0.32
     description_color: str = "#6B7280"
@@ -543,6 +544,11 @@ def create_dataset_gallery_figure(
 
             detail_text = row_details[group_idx]
             if detail_text:
+                detail_fontsize = (
+                    float(config.badge_detail_fontsize)
+                    if config.badge_detail_fontsize is not None
+                    else max(2.2, config.badge_fontsize - 0.4)
+                )
                 badge_ax.text(
                     0.05,
                     0.70,
@@ -550,7 +556,7 @@ def create_dataset_gallery_figure(
                     transform=badge_ax.transAxes,
                     ha="left",
                     va="top",
-                    fontsize=max(2.2, config.badge_fontsize - 0.4),
+                    fontsize=detail_fontsize,
                     color="#151922",
                     linespacing=1.2,
                 )

@@ -115,6 +115,15 @@ def _parse_views(value: str) -> List[Tuple[float, float]]:
     return views
 
 
+def _parse_xyz_degrees(value: str) -> Tuple[float, float, float]:
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    if len(parts) != 3:
+        raise ValueError(
+            "Expected three comma-separated values for XYZ rotation, e.g. 0,0,90"
+        )
+    return float(parts[0]), float(parts[1]), float(parts[2])
+
+
 def _parse_metrics(value: str) -> List[str]:
     metrics = [m.strip().lower() for m in value.split(",") if m.strip()]
     if not metrics:
@@ -644,6 +653,61 @@ def _build_dataset(args, data_root: Path):
     )
 
 
+def _extract_sample_category(sample: Any) -> str:
+    if sample is None:
+        return ""
+
+    if hasattr(sample, "category"):
+        value = getattr(sample, "category")
+        if value is not None and str(value).strip():
+            return str(value).strip()
+
+    if isinstance(sample, dict):
+        value = sample.get("category", sample.get("text", ""))
+        if value is not None and str(value).strip():
+            return str(value).strip()
+
+    if hasattr(sample, "text"):
+        value = getattr(sample, "text")
+        if value is not None and str(value).strip():
+            return str(value).strip()
+
+    return ""
+
+
+def _resolve_sample_category(
+    *,
+    full_dataset,
+    test_dataset,
+    sample_idx: int,
+) -> str:
+    try:
+        sample = test_dataset[sample_idx]
+        category = _extract_sample_category(sample)
+        if category:
+            return category
+    except Exception:
+        pass
+
+    if isinstance(test_dataset, Subset) and hasattr(full_dataset, "dataset"):
+        base_dataset = getattr(full_dataset, "dataset")
+        global_idx = int(test_dataset.indices[sample_idx])
+        try:
+            base_item = base_dataset[global_idx]
+            category = _extract_sample_category(base_item)
+            if category:
+                return category
+        except Exception:
+            pass
+
+    return ""
+
+
+def _build_category_caption(category: str) -> str:
+    category = str(category).strip()
+    return f"category: {category}" if category else ""
+
+
 def _resolve_clean_gt_for_sample(
     *,
     full_dataset,
@@ -1023,12 +1087,37 @@ def _build_arg_schema() -> List[ArgSpec]:
             ("--segmented-summary-csv-name",),
             {"type": str, "default": "evaluation_segmented_summary.csv"},
         ),
-        ArgSpec(("--views",), {"type": str, "default": "30,45;30,135"}),
-        ArgSpec(("--point-size",), {"type": float, "default": 1.5}),
+        ArgSpec(("--views",), {"type": str, "default": "0,0;0,90"}),
+        ArgSpec(("--point-size",), {"type": float, "default": 4.5}),
         ArgSpec(("--max-points",), {"type": int, "default": 8192}),
         ArgSpec(("--zoom",), {"type": float, "default": 1.0}),
+        ArgSpec(
+            ("--point-rotation",),
+            {
+                "type": str,
+                "default": "90,0,0",
+                "help": "Object-space XYZ rotation in degrees applied before rendering (e.g. 0,0,90).",
+            },
+        ),
         ArgSpec(("--dpi",), {"type": int, "default": 300}),
-        ArgSpec(("--max-sample-cols",), {"type": int, "default": 2}),
+        ArgSpec(("--min-figure-width",), {"type": float, "default": 0}),
+        ArgSpec(("--min-figure-height",), {"type": float, "default": 0}),
+        ArgSpec(("--badge-fontsize",), {"type": float, "default": 16.0}),
+        ArgSpec(
+            ("--metrics-fontsize",),
+            {
+                "type": float,
+                "default": 9.0,
+                "help": "Font size for per-cloud metric detail text shown under badge labels.",
+            },
+        ),
+        ArgSpec(("--caption-fontsize",), {"type": float, "default": 14.0}),
+        ArgSpec(("--side-note-fontsize",), {"type": float, "default": 14.0}),
+        ArgSpec(("--border-linewidth",), {"type": float, "default": 0.2}),
+        ArgSpec(("--block-view-width",), {"type": float, "default": 3.0}),
+        ArgSpec(("--block-row-height",), {"type": float, "default": 3.0}),
+        ArgSpec(("--page-padding",), {"type": float, "default": 0}),
+        ArgSpec(("--max-sample-cols",), {"type": int, "default": 3}),
         ArgSpec(("--defect-augmentation-count",), {"type": int, "default": 5}),
         ArgSpec(("--local-dropout-regions",), {"type": int, "default": 5}),
         ArgSpec(("--dense",), {"action": "store_true"}),
@@ -1317,6 +1406,12 @@ def main() -> None:
 
         for i, sample_idx in enumerate(batch_indices_cpu):
             original_i = originals[i]
+            sample_category = _resolve_sample_category(
+                full_dataset=dataset,
+                test_dataset=test_dataset,
+                sample_idx=sample_idx,
+            )
+            sample_category_caption = _build_category_caption(sample_category)
             if args.mode == "advanced":
                 original_i = _resolve_clean_gt_for_sample(
                     full_dataset=dataset,
@@ -1549,6 +1644,7 @@ def main() -> None:
 
             if run_scenario_a and sample_idx in selected_set:
                 selected_payload[sample_idx] = {
+                    "category_caption": sample_category_caption,
                     "original": original_i.detach().cpu(),
                     "defected": defected_for_model[i].detach().cpu(),
                     "defected_metrics": defected_metric_values,
@@ -1556,6 +1652,7 @@ def main() -> None:
                     "metrics": sample_metrics,
                 }
                 segmented_selected_payload[sample_idx] = {
+                    "category_caption": sample_category_caption,
                     "original_preserved": reference["original_preserved"]
                     .detach()
                     .cpu(),
@@ -1565,6 +1662,7 @@ def main() -> None:
 
             if (run_scenario_b or run_scenario_c) and sample_idx in selected_set:
                 selected_pipeline_payload[sample_idx] = {
+                    "category_caption": sample_category_caption,
                     "gt_full": original_i.detach().cpu(),
                     "gt_fps": gt_fps_i.detach().cpu() if gt_fps_i is not None else None,
                     "stages": {
@@ -1606,7 +1704,7 @@ def main() -> None:
             payload = selected_payload.get(idx)
             if payload is not None:
                 rows = [payload["original"], payload["defected"]]
-                labels = ["A::Original", "A::Defected"]
+                labels = ["Original", "Defected"]
                 details = [f"N={rows[0].shape[0]}"]
 
                 defected_lines = [f"N={rows[1].shape[0]}"]
@@ -1618,7 +1716,7 @@ def main() -> None:
                 for spec in model_specs:
                     pred = payload["predictions"][spec.name]
                     rows.append(pred)
-                    labels.append(f"A::{spec.name}")
+                    labels.append(spec.name)
 
                     metric_values = payload["metrics"][spec.name]
                     pred_lines = [f"N={pred.shape[0]}"]
@@ -1626,63 +1724,35 @@ def main() -> None:
                     details.append("\n".join(pred_lines))
 
                 pointclouds.append(rows)
-                descriptions.append("Scenario A")
+                descriptions.append(str(payload.get("category_caption", "")))
                 badge_labels.append(labels)
                 badge_details.append(details)
                 kept_indices.append(idx)
                 added_any = True
 
-        if run_scenario_b or run_scenario_c:
+        if run_scenario_c:
             pp = selected_pipeline_payload.get(idx)
             if pp is not None:
-                rows = [pp["gt_full"], pp["stages"]["input"]]
-                labels = ["GT Full", "B::Input"]
-                details = [f"N={rows[0].shape[0]}", f"N={rows[1].shape[0]}"]
+                fps_cloud = pp["stages"].get("fps")
+                if fps_cloud is None:
+                    continue
+                gt_fps = pp.get("gt_fps")
+                gt_for_c = gt_fps if gt_fps is not None else pp["gt_full"]
 
-                if run_scenario_b:
-                    for stage_key, stage_label in [
-                        ("outlier_1", "B::OutlierRemoval#1"),
-                        ("denoise", "B::Denoising"),
-                        ("outlier_2", "B::OutlierRemoval#2"),
-                    ]:
-                        stage_cloud = pp["stages"].get(stage_key)
-                        if stage_cloud is None:
-                            continue
-                        rows.append(stage_cloud)
-                        labels.append(stage_label)
-                        lines = [f"N={stage_cloud.shape[0]}"]
-                        lines.extend(
-                            _metrics_to_lines(
-                                pp["stage_metrics"].get(stage_key, {}),
-                                metrics,
-                            )
-                        )
-                        if stage_key in pp["stage_timings"]:
-                            lines.append(
-                                f"T={float(pp['stage_timings'][stage_key]):.3f}s"
-                            )
-                        details.append("\n".join(lines))
+                rows = [gt_for_c, fps_cloud]
+                labels = ["GT", "Input"]
+                details = [f"N={rows[0].shape[0]}"]
 
-                    fps_cloud = pp["stages"].get("fps")
-                    if fps_cloud is not None:
-                        gt_fps = pp.get("gt_fps")
-                        if gt_fps is not None:
-                            rows.append(gt_fps)
-                            labels.append("GT FPS")
-                            details.append(f"N={gt_fps.shape[0]}")
-                        rows.append(fps_cloud)
-                        labels.append("B::FPS")
-                        fps_lines = [f"N={fps_cloud.shape[0]}"]
-                        fps_lines.extend(
-                            _metrics_to_lines(
-                                pp["stage_metrics"].get("fps", {}), metrics
-                            )
-                        )
-                        if "fps" in pp["stage_timings"]:
-                            fps_lines.append(
-                                f"T={float(pp['stage_timings']['fps']):.3f}s"
-                            )
-                        details.append("\n".join(fps_lines))
+                input_lines = [f"N={fps_cloud.shape[0]}"]
+                input_lines.extend(
+                    _metrics_to_lines(
+                        pp["stage_metrics"].get("fps", {}),
+                        metrics,
+                    )
+                )
+                if "fps" in pp["stage_timings"]:
+                    input_lines.append(f"T={float(pp['stage_timings']['fps']):.3f}s")
+                details.append("\n".join(input_lines))
 
                 if run_scenario_c and pp["c_predictions"]:
                     for spec in model_specs:
@@ -1690,7 +1760,7 @@ def main() -> None:
                         if pred is None:
                             continue
                         rows.append(pred)
-                        labels.append(f"C::{spec.name}")
+                        labels.append(spec.name)
                         pred_lines = [f"N={pred.shape[0]}"]
                         pred_lines.extend(
                             _metrics_to_lines(
@@ -1700,11 +1770,7 @@ def main() -> None:
                         details.append("\n".join(pred_lines))
 
                 pointclouds.append(rows)
-                descriptions.append(
-                    "Scenario B/C"
-                    if run_scenario_b and run_scenario_c
-                    else ("Scenario B" if run_scenario_b else "Scenario C")
-                )
+                descriptions.append(str(pp.get("category_caption", "")))
                 badge_labels.append(labels)
                 badge_details.append(details)
                 kept_indices.append(idx)
@@ -1716,20 +1782,147 @@ def main() -> None:
                 sample_idx=idx,
             )
 
+    gallery_cfg = GalleryConfig(
+        max_sample_cols=args.max_sample_cols,
+        views=_parse_views(args.views),
+        point_size=args.point_size,
+        max_points=args.max_points,
+        zoom=args.zoom,
+        point_rotation_deg=_parse_xyz_degrees(args.point_rotation),
+        dpi=args.dpi,
+        badge_fontsize=args.badge_fontsize,
+        badge_detail_fontsize=args.metrics_fontsize,
+        caption_fontsize=args.caption_fontsize,
+        side_note_fontsize=args.side_note_fontsize,
+        border_linewidth=args.border_linewidth,
+        block_view_width=args.block_view_width,
+        block_row_height=args.block_row_height,
+        min_figure_width=args.min_figure_width,
+        min_figure_height=args.min_figure_height,
+        outer_wspace=0,
+        outer_hspace=0,
+        page_padding=args.page_padding,
+        wrap_caption_chars=80,
+    )
+
+    phase_gallery_paths: List[Path] = []
+    if run_scenario_b and selected_pipeline_payload:
+        phase_specs = [
+            ("outlier_1", "outlier_before", "Outlier Removal #1"),
+            ("denoise", "denoise", "Denoising"),
+            ("outlier_2", "outlier_after", "Outlier Removal #2"),
+            ("fps", "fps", "FPS"),
+        ]
+
+        for stage_key, stage_slug, stage_title in phase_specs:
+            phase_pointclouds = []
+            phase_descriptions = []
+            phase_badge_labels = []
+            phase_badge_details = []
+            phase_kept_indices: List[int] = []
+
+            for idx in chosen_indices:
+                pp = selected_pipeline_payload.get(idx)
+                if pp is None:
+                    continue
+
+                stages = pp["stages"]
+                output_cloud = stages.get(stage_key)
+                if output_cloud is None:
+                    continue
+
+                if stage_key == "outlier_1":
+                    input_key = "input"
+                elif stage_key == "denoise":
+                    input_key = "outlier_1" if "outlier_1" in stages else "input"
+                elif stage_key == "outlier_2":
+                    if "denoise" in stages:
+                        input_key = "denoise"
+                    elif "outlier_1" in stages:
+                        input_key = "outlier_1"
+                    else:
+                        input_key = "input"
+                else:  # fps
+                    if "outlier_2" in stages:
+                        input_key = "outlier_2"
+                    elif "denoise" in stages:
+                        input_key = "denoise"
+                    elif "outlier_1" in stages:
+                        input_key = "outlier_1"
+                    else:
+                        input_key = "input"
+
+                input_cloud = stages.get(input_key)
+                if input_cloud is None:
+                    continue
+
+                gt_cloud = pp["gt_full"]
+                if stage_key == "fps" and pp.get("gt_fps") is not None:
+                    gt_cloud = pp["gt_fps"]
+
+                input_metrics = pp["stage_metrics"].get(input_key, {})
+                output_metrics = pp["stage_metrics"].get(stage_key, {})
+
+                rows = [gt_cloud, input_cloud, output_cloud]
+                labels = ["GT", "Input", "Output"]
+
+                input_lines = [f"N={input_cloud.shape[0]}"]
+                input_lines.extend(_metrics_to_lines(input_metrics, metrics))
+                if input_key in pp["stage_timings"]:
+                    input_lines.append(
+                        f"T={float(pp['stage_timings'][input_key]):.3f}s"
+                    )
+
+                output_lines = [f"N={output_cloud.shape[0]}"]
+                output_lines.extend(_metrics_to_lines(output_metrics, metrics))
+                if stage_key in pp["stage_timings"]:
+                    output_lines.append(
+                        f"T={float(pp['stage_timings'][stage_key]):.3f}s"
+                    )
+
+                phase_pointclouds.append(rows)
+                phase_descriptions.append(str(pp.get("category_caption", "")))
+                phase_badge_labels.append(labels)
+                phase_badge_details.append(
+                    [
+                        f"N={gt_cloud.shape[0]}",
+                        "\n".join(input_lines),
+                        "\n".join(output_lines),
+                    ]
+                )
+                phase_kept_indices.append(idx)
+
+            if not phase_pointclouds:
+                continue
+
+            phase_output_path = gallery_output.with_name(
+                f"{gallery_output.stem}_{stage_slug}{gallery_output.suffix}"
+            )
+            save_dataset_gallery(
+                phase_pointclouds,
+                str(phase_output_path),
+                dataset_name=f"{args.dataset}-evaluation-{stage_title}",
+                sample_indices=phase_kept_indices,
+                descriptions=phase_descriptions,
+                badge_labels=phase_badge_labels,
+                badge_details=phase_badge_details,
+                side_notes=[],
+                config=gallery_cfg,
+                seed=args.seed,
+            )
+            phase_gallery_paths.append(phase_output_path)
+
     saved_main_gallery = False
     if not pointclouds:
-        logger.warning(
-            "No valid samples available for gallery image; skipping gallery save."
-        )
+        if run_scenario_b and not (run_scenario_a or run_scenario_c):
+            logger.info(
+                "Main gallery skipped for scenario B; per-phase galleries were generated instead."
+            )
+        else:
+            logger.warning(
+                "No valid samples available for gallery image; skipping gallery save."
+            )
     else:
-        gallery_cfg = GalleryConfig(
-            max_sample_cols=args.max_sample_cols,
-            views=_parse_views(args.views),
-            point_size=args.point_size,
-            max_points=args.max_points,
-            zoom=args.zoom,
-            dpi=args.dpi,
-        )
 
         save_dataset_gallery(
             pointclouds,
@@ -1800,19 +1993,12 @@ def main() -> None:
         segmented_pointclouds.append(rows)
         segmented_badge_labels.append(labels)
         segmented_badge_details.append(details)
-        segmented_descriptions.append("")
+        segmented_descriptions.append(str(payload.get("category_caption", "")))
         segmented_kept_indices.append(idx)
 
     saved_segmented_gallery = False
     if segmented_pointclouds:
-        seg_cfg = GalleryConfig(
-            max_sample_cols=args.max_sample_cols,
-            views=_parse_views(args.views),
-            point_size=args.point_size,
-            max_points=args.max_points,
-            zoom=args.zoom,
-            dpi=args.dpi,
-        )
+        seg_cfg = gallery_cfg
         save_dataset_gallery(
             segmented_pointclouds,
             str(segmented_gallery_output),
@@ -1831,6 +2017,9 @@ def main() -> None:
         logger.info("Saved gallery image to {path}", path=gallery_output)
     else:
         logger.info("Main gallery was not generated for this run.")
+    if phase_gallery_paths:
+        for phase_path in phase_gallery_paths:
+            logger.info("Saved phase gallery image to {path}", path=phase_path)
     logger.info("Saved per-sample metrics to {path}", path=metrics_csv)
     logger.info("Saved aggregate summary to {path}", path=summary_csv)
     if saved_segmented_gallery:
