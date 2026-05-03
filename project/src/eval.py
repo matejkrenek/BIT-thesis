@@ -128,6 +128,26 @@ def _parse_metrics(value: str) -> List[str]:
     return metrics
 
 
+def _validate_split_ratios(
+    train_ratio: float, val_ratio: float
+) -> Tuple[float, float, float]:
+    train_ratio = float(train_ratio)
+    val_ratio = float(val_ratio)
+
+    if not (0.0 < train_ratio < 1.0):
+        raise ValueError("--train-ratio must be in range (0, 1)")
+    if not (0.0 <= val_ratio < 1.0):
+        raise ValueError("--val-ratio must be in range [0, 1)")
+
+    test_ratio = 1.0 - train_ratio - val_ratio
+    if test_ratio <= 0.0:
+        raise ValueError(
+            "Invalid split ratios: train_ratio + val_ratio must be < 1.0 so test split remains positive"
+        )
+
+    return train_ratio, val_ratio, test_ratio
+
+
 def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
     if not values:
         raise ValueError("At least one --model-spec/--modelspec must be provided")
@@ -942,6 +962,30 @@ def _build_arg_schema() -> List[ArgSpec]:
         ArgSpec(("--sample-indices",), {"type": str, "default": None}),
         ArgSpec(("--seed",), {"type": int, "default": 42}),
         ArgSpec(
+            ("--train-ratio",),
+            {
+                "type": float,
+                "default": 0.8,
+                "help": "Train split ratio. Test ratio is computed implicitly as 1 - train_ratio - val_ratio.",
+            },
+        ),
+        ArgSpec(
+            ("--val-ratio",),
+            {
+                "type": float,
+                "default": 0.1,
+                "help": "Validation split ratio. Test ratio is computed implicitly as 1 - train_ratio - val_ratio.",
+            },
+        ),
+        ArgSpec(
+            ("--test-samples",),
+            {
+                "type": int,
+                "default": None,
+                "help": "Optional number of samples to process from test split. Omit to process all test samples.",
+            },
+        ),
+        ArgSpec(
             ("--output-dir",),
             {
                 "type": str,
@@ -1074,6 +1118,11 @@ def main() -> None:
     logger.info("Data root: {root}", root=data_root)
     logger.info("Run output dir: {run_dir}", run_dir=run_dir)
 
+    train_ratio, val_ratio, test_ratio = _validate_split_ratios(
+        args.train_ratio,
+        args.val_ratio,
+    )
+
     dataset = _build_dataset(args, data_root)
     if len(dataset) == 0:
         raise RuntimeError("Dataset is empty after loading")
@@ -1088,8 +1137,8 @@ def main() -> None:
 
     _, _, test_loader = create_train_val_test_dataloaders(
         dataset,
-        train_ratio=0.99,
-        val_ratio=0.009,
+        train_ratio=train_ratio,
+        val_ratio=val_ratio,
         batch_size=eval_batch_size,
         seed=args.seed,
         num_workers=args.num_workers,
@@ -1097,7 +1146,31 @@ def main() -> None:
     )
 
     test_dataset = test_loader.dataset
-    logger.info("Test split size: {size}", size=len(test_dataset))
+    test_split_size = len(test_dataset)
+    logger.info(
+        "Dataset split ratios train/val/test = {train:.4f}/{val:.4f}/{test:.4f}",
+        train=train_ratio,
+        val=val_ratio,
+        test=test_ratio,
+    )
+    logger.info("Test split size: {size}", size=test_split_size)
+
+    if args.test_samples is None:
+        processed_test_size = test_split_size
+    else:
+        requested_test_samples = int(args.test_samples)
+        if requested_test_samples < 1:
+            raise ValueError("--test-samples must be at least 1 when provided")
+        if requested_test_samples > test_split_size:
+            raise ValueError(
+                f"--test-samples={requested_test_samples} exceeds test split size ({test_split_size})"
+            )
+        processed_test_size = requested_test_samples
+
+    logger.info(
+        "Processing {count} test sample(s)",
+        count=processed_test_size,
+    )
 
     pipeline_runtime = _build_pipeline_runtime(args, cfg)
     if pipeline_runtime is None and (run_scenario_b or run_scenario_c):
@@ -1134,17 +1207,17 @@ def main() -> None:
 
     if args.sample_indices:
         chosen_indices = _parse_indices(args.sample_indices)
-        invalid = [i for i in chosen_indices if i < 0 or i >= len(test_dataset)]
+        invalid = [i for i in chosen_indices if i < 0 or i >= processed_test_size]
         if invalid:
             raise ValueError(
-                f"Invalid sample indices {invalid}. Valid range is [0, {len(test_dataset) - 1}]"
+                f"Invalid sample indices {invalid}. Valid range is [0, {processed_test_size - 1}]"
             )
         chosen_indices = list(dict.fromkeys(chosen_indices))
     else:
         rng = np.random.default_rng(args.seed)
-        k = min(args.num_samples, len(test_dataset))
+        k = min(args.num_samples, processed_test_size)
         chosen_indices = sorted(
-            rng.choice(len(test_dataset), size=k, replace=False).tolist()
+            rng.choice(processed_test_size, size=k, replace=False).tolist()
         )
 
     selected_set = set(chosen_indices)
@@ -1182,11 +1255,25 @@ def main() -> None:
 
     per_sample_records: List[Dict[str, object]] = []
     selected_payload: Dict[int, Dict[str, object]] = {}
+    selected_pipeline_payload: Dict[int, Dict[str, object]] = {}
     segmented_records: List[Dict[str, object]] = []
     segmented_selected_payload: Dict[int, Dict[str, object]] = {}
 
     running_sample_idx = 0
-    for batch in tqdm(test_loader, desc="Evaluating", unit="batch"):
+    total_eval_batches = (
+        (processed_test_size + eval_batch_size - 1) // eval_batch_size
+        if processed_test_size > 0
+        else 0
+    )
+    for batch in tqdm(
+        test_loader,
+        total=total_eval_batches,
+        desc="Evaluating",
+        unit="batch",
+    ):
+        if running_sample_idx >= processed_test_size:
+            break
+
         originals, padded_defected, defected_lengths = batch
         if originals is None:
             continue
@@ -1196,6 +1283,13 @@ def main() -> None:
         defected_lengths = defected_lengths.to(cfg.device)
 
         batch_size_actual = originals.shape[0]
+        remaining = processed_test_size - running_sample_idx
+        if batch_size_actual > remaining:
+            originals = originals[:remaining]
+            padded_defected = padded_defected[:remaining]
+            defected_lengths = defected_lengths[:remaining]
+            batch_size_actual = int(remaining)
+
         batch_indices_cpu = list(
             range(running_sample_idx, running_sample_idx + batch_size_actual)
         )
@@ -1231,6 +1325,7 @@ def main() -> None:
                     fallback_gt=original_i,
                 )
             defected_i = defected_for_model[i]
+            scenario_b_stage_metrics: Dict[str, Dict[str, float]] = {}
 
             if run_scenario_b or run_scenario_c:
                 if pipeline_runtime is None:
@@ -1296,6 +1391,7 @@ def main() -> None:
                                 "metrics": stage_metrics,
                             }
                         )
+                        scenario_b_stage_metrics[stage_key] = stage_metrics
 
                     fps_t = (
                         torch.from_numpy(pipeline_stages["fps"]).float().to(cfg.device)
@@ -1313,6 +1409,7 @@ def main() -> None:
                             "metrics": fps_metrics,
                         }
                     )
+                    scenario_b_stage_metrics["fps"] = fps_metrics
             else:
                 pipeline_stages = {}
                 pipeline_stage_timings = {}
@@ -1321,6 +1418,8 @@ def main() -> None:
             sample_predictions: Dict[str, torch.Tensor] = {}
             sample_metrics: Dict[str, Dict[str, float]] = {}
             sample_segmented: Dict[str, Dict[str, object]] = {}
+            sample_c_predictions: Dict[str, torch.Tensor] = {}
+            sample_c_metrics: Dict[str, Dict[str, float]] = {}
             defected_metric_values: Dict[str, float] = {}
 
             if run_scenario_a:
@@ -1445,6 +1544,8 @@ def main() -> None:
                             "metrics": c_metrics,
                         }
                     )
+                    sample_c_predictions[spec.name] = pred_c.detach().cpu()
+                    sample_c_metrics[spec.name] = c_metrics
 
             if run_scenario_a and sample_idx in selected_set:
                 selected_payload[sample_idx] = {
@@ -1462,6 +1563,20 @@ def main() -> None:
                     "per_model": sample_segmented,
                 }
 
+            if (run_scenario_b or run_scenario_c) and sample_idx in selected_set:
+                selected_pipeline_payload[sample_idx] = {
+                    "gt_full": original_i.detach().cpu(),
+                    "gt_fps": gt_fps_i.detach().cpu() if gt_fps_i is not None else None,
+                    "stages": {
+                        key: torch.from_numpy(value).float()
+                        for key, value in pipeline_stages.items()
+                    },
+                    "stage_metrics": scenario_b_stage_metrics,
+                    "stage_timings": dict(pipeline_stage_timings),
+                    "c_predictions": sample_c_predictions,
+                    "c_metrics": sample_c_metrics,
+                }
+
     main_metric_cols = _metric_columns(per_sample_records, metrics)
     aggregate_rows = _compute_aggregate_table(per_sample_records, main_metric_cols)
     _save_per_sample_csv(metrics_csv, per_sample_records, main_metric_cols)
@@ -1477,18 +1592,6 @@ def main() -> None:
     )
     _save_aggregate_csv(segmented_summary_csv, segmented_aggregate_rows)
 
-    if not run_scenario_a:
-        logger.info("Scenario A disabled; skipping completion galleries.")
-        logger.info("Saved per-sample metrics to {path}", path=metrics_csv)
-        logger.info("Saved aggregate summary to {path}", path=summary_csv)
-        logger.info(
-            "Saved segmented per-sample metrics to {path}", path=segmented_metrics_csv
-        )
-        logger.info(
-            "Saved segmented aggregate summary to {path}", path=segmented_summary_csv
-        )
-        return
-
     pointclouds = []
     descriptions = []
     badge_labels = []
@@ -1497,62 +1600,150 @@ def main() -> None:
     kept_indices: List[int] = []
 
     for idx in chosen_indices:
-        payload = selected_payload.get(idx)
-        if payload is None:
+        added_any = False
+
+        if run_scenario_a:
+            payload = selected_payload.get(idx)
+            if payload is not None:
+                rows = [payload["original"], payload["defected"]]
+                labels = ["A::Original", "A::Defected"]
+                details = [f"N={rows[0].shape[0]}"]
+
+                defected_lines = [f"N={rows[1].shape[0]}"]
+                defected_lines.extend(
+                    _metrics_to_lines(payload["defected_metrics"], metrics)
+                )
+                details.append("\n".join(defected_lines))
+
+                for spec in model_specs:
+                    pred = payload["predictions"][spec.name]
+                    rows.append(pred)
+                    labels.append(f"A::{spec.name}")
+
+                    metric_values = payload["metrics"][spec.name]
+                    pred_lines = [f"N={pred.shape[0]}"]
+                    pred_lines.extend(_metrics_to_lines(metric_values, metrics))
+                    details.append("\n".join(pred_lines))
+
+                pointclouds.append(rows)
+                descriptions.append("Scenario A")
+                badge_labels.append(labels)
+                badge_details.append(details)
+                kept_indices.append(idx)
+                added_any = True
+
+        if run_scenario_b or run_scenario_c:
+            pp = selected_pipeline_payload.get(idx)
+            if pp is not None:
+                rows = [pp["gt_full"], pp["stages"]["input"]]
+                labels = ["GT Full", "B::Input"]
+                details = [f"N={rows[0].shape[0]}", f"N={rows[1].shape[0]}"]
+
+                if run_scenario_b:
+                    for stage_key, stage_label in [
+                        ("outlier_1", "B::OutlierRemoval#1"),
+                        ("denoise", "B::Denoising"),
+                        ("outlier_2", "B::OutlierRemoval#2"),
+                    ]:
+                        stage_cloud = pp["stages"].get(stage_key)
+                        if stage_cloud is None:
+                            continue
+                        rows.append(stage_cloud)
+                        labels.append(stage_label)
+                        lines = [f"N={stage_cloud.shape[0]}"]
+                        lines.extend(
+                            _metrics_to_lines(
+                                pp["stage_metrics"].get(stage_key, {}),
+                                metrics,
+                            )
+                        )
+                        if stage_key in pp["stage_timings"]:
+                            lines.append(
+                                f"T={float(pp['stage_timings'][stage_key]):.3f}s"
+                            )
+                        details.append("\n".join(lines))
+
+                    fps_cloud = pp["stages"].get("fps")
+                    if fps_cloud is not None:
+                        gt_fps = pp.get("gt_fps")
+                        if gt_fps is not None:
+                            rows.append(gt_fps)
+                            labels.append("GT FPS")
+                            details.append(f"N={gt_fps.shape[0]}")
+                        rows.append(fps_cloud)
+                        labels.append("B::FPS")
+                        fps_lines = [f"N={fps_cloud.shape[0]}"]
+                        fps_lines.extend(
+                            _metrics_to_lines(
+                                pp["stage_metrics"].get("fps", {}), metrics
+                            )
+                        )
+                        if "fps" in pp["stage_timings"]:
+                            fps_lines.append(
+                                f"T={float(pp['stage_timings']['fps']):.3f}s"
+                            )
+                        details.append("\n".join(fps_lines))
+
+                if run_scenario_c and pp["c_predictions"]:
+                    for spec in model_specs:
+                        pred = pp["c_predictions"].get(spec.name)
+                        if pred is None:
+                            continue
+                        rows.append(pred)
+                        labels.append(f"C::{spec.name}")
+                        pred_lines = [f"N={pred.shape[0]}"]
+                        pred_lines.extend(
+                            _metrics_to_lines(
+                                pp["c_metrics"].get(spec.name, {}), metrics
+                            )
+                        )
+                        details.append("\n".join(pred_lines))
+
+                pointclouds.append(rows)
+                descriptions.append(
+                    "Scenario B/C"
+                    if run_scenario_b and run_scenario_c
+                    else ("Scenario B" if run_scenario_b else "Scenario C")
+                )
+                badge_labels.append(labels)
+                badge_details.append(details)
+                kept_indices.append(idx)
+                added_any = True
+
+        if not added_any:
             logger.warning(
                 "Sample {sample_idx} was selected for gallery but not available after evaluation",
                 sample_idx=idx,
             )
-            continue
 
-        rows = [payload["original"], payload["defected"]]
-        labels = ["Original", "Defected"]
-        details = [f"N={rows[0].shape[0]}"]
-
-        defected_lines = [f"N={rows[1].shape[0]}"]
-        defected_lines.extend(_metrics_to_lines(payload["defected_metrics"], metrics))
-        details.append("\n".join(defected_lines))
-
-        for spec in model_specs:
-            pred = payload["predictions"][spec.name]
-            rows.append(pred)
-            labels.append(spec.name)
-
-            metric_values = payload["metrics"][spec.name]
-            pred_lines = [f"N={pred.shape[0]}"]
-            pred_lines.extend(_metrics_to_lines(metric_values, metrics))
-            details.append("\n".join(pred_lines))
-
-        pointclouds.append(rows)
-        descriptions.append("")
-        badge_labels.append(labels)
-        badge_details.append(details)
-        kept_indices.append(idx)
-
+    saved_main_gallery = False
     if not pointclouds:
-        raise RuntimeError("No valid samples available for gallery image")
+        logger.warning(
+            "No valid samples available for gallery image; skipping gallery save."
+        )
+    else:
+        gallery_cfg = GalleryConfig(
+            max_sample_cols=args.max_sample_cols,
+            views=_parse_views(args.views),
+            point_size=args.point_size,
+            max_points=args.max_points,
+            zoom=args.zoom,
+            dpi=args.dpi,
+        )
 
-    gallery_cfg = GalleryConfig(
-        max_sample_cols=args.max_sample_cols,
-        views=_parse_views(args.views),
-        point_size=args.point_size,
-        max_points=args.max_points,
-        zoom=args.zoom,
-        dpi=args.dpi,
-    )
-
-    save_dataset_gallery(
-        pointclouds,
-        str(gallery_output),
-        dataset_name=f"{args.dataset}-evaluation",
-        sample_indices=kept_indices,
-        descriptions=descriptions,
-        badge_labels=badge_labels,
-        badge_details=badge_details,
-        side_notes=side_notes,
-        config=gallery_cfg,
-        seed=args.seed,
-    )
+        save_dataset_gallery(
+            pointclouds,
+            str(gallery_output),
+            dataset_name=f"{args.dataset}-evaluation",
+            sample_indices=kept_indices,
+            descriptions=descriptions,
+            badge_labels=badge_labels,
+            badge_details=badge_details,
+            side_notes=side_notes,
+            config=gallery_cfg,
+            seed=args.seed,
+        )
+        saved_main_gallery = True
 
     segmented_pointclouds = []
     segmented_badge_labels = []
@@ -1612,6 +1803,7 @@ def main() -> None:
         segmented_descriptions.append("")
         segmented_kept_indices.append(idx)
 
+    saved_segmented_gallery = False
     if segmented_pointclouds:
         seg_cfg = GalleryConfig(
             max_sample_cols=args.max_sample_cols,
@@ -1633,13 +1825,20 @@ def main() -> None:
             config=seg_cfg,
             seed=args.seed,
         )
+        saved_segmented_gallery = True
 
-    logger.info("Saved gallery image to {path}", path=gallery_output)
+    if saved_main_gallery:
+        logger.info("Saved gallery image to {path}", path=gallery_output)
+    else:
+        logger.info("Main gallery was not generated for this run.")
     logger.info("Saved per-sample metrics to {path}", path=metrics_csv)
     logger.info("Saved aggregate summary to {path}", path=summary_csv)
-    logger.info(
-        "Saved segmented gallery image to {path}", path=segmented_gallery_output
-    )
+    if saved_segmented_gallery:
+        logger.info(
+            "Saved segmented gallery image to {path}", path=segmented_gallery_output
+        )
+    else:
+        logger.info("Segmented gallery was not generated for this run.")
     logger.info(
         "Saved segmented per-sample metrics to {path}", path=segmented_metrics_csv
     )
