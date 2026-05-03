@@ -1107,7 +1107,7 @@ def _build_arg_schema() -> List[ArgSpec]:
             ("--metrics-fontsize",),
             {
                 "type": float,
-                "default": 9.0,
+                "default": 8.0,
                 "help": "Font size for per-cloud metric detail text shown under badge labels.",
             },
         ),
