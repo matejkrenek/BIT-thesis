@@ -1,0 +1,7 @@
+model,metric,mean,median,std,count
+A::PoinTr,original_preserved_vs_current_preserved_chamfer,6.933951533937943e-05,5.407158823800273e-05,5.073793983654133e-05,50
+A::PoinTr,original_preserved_vs_current_preserved_dcd,0.007830435507930816,0.00759458658285439,0.002632656057343282,50
+A::PoinTr,original_preserved_vs_current_preserved_hausdorff,0.12811286851763726,0.10420116782188416,0.09459089216809252,50
+A::PoinTr,repaired_target_vs_current_repaired_chamfer,0.01450903712771833,0.002235332503914833,0.030345313413599983,50
+A::PoinTr,repaired_target_vs_current_repaired_dcd,0.11720709711313247,0.11014630645513535,0.046923146260752016,50
+A::PoinTr,repaired_target_vs_current_repaired_hausdorff,0.6938335169106722,0.6749097108840942,0.3512131112556287,50

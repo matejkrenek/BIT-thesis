@@ -1,7 +1,0 @@
-model,metric,mean,median,std,count
-adapointr,original_preserved_vs_current_preserved_chamfer,0.00034638960854257067,0.0003237621276639402,0.00021542885726125112,48
-adapointr,original_preserved_vs_current_preserved_dcd,0.07645812506477039,0.07510116696357727,0.0408276159127492,48
-adapointr,original_preserved_vs_current_preserved_hausdorff,0.06473799162389089,0.06077987886965275,0.029185506634214795,48
-adapointr,repaired_target_vs_current_repaired_chamfer,0.06045679474482313,0.027055631391704082,0.10873334746479874,48
-adapointr,repaired_target_vs_current_repaired_dcd,0.0961415918233494,0.09059225767850876,0.0472299663917925,48
-adapointr,repaired_target_vs_current_repaired_hausdorff,0.4665628246342142,0.42695096135139465,0.22598492764437583,48
