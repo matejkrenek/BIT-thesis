@@ -6,7 +6,6 @@ Responsibility: Exports dataset wrapper classes for normalization, patching, aug
 """
 
 from .dense import DenseWrapperDataset
-from .split import SplitWrapperDataset
 from .augment import AugmentWrapperDataset
 from .patch import PatchWrapperDataset
 from .normalize import NormalizeWrapperDataset
@@ -17,7 +16,6 @@ from .pointcleannet_compat import (
 
 __all__ = [
     "DenseWrapperDataset",
-    "SplitWrapperDataset",
     "AugmentWrapperDataset",
     "PatchWrapperDataset",
     "NormalizeWrapperDataset",

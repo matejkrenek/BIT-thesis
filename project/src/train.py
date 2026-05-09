@@ -30,6 +30,16 @@ from core import (
 )
 from notifications import DiscordNotifier
 
+UNSUPPORTED_UNIFIED_TRAIN_MODELS = {"pointcleannet", "pointcleannet_outliers"}
+
+
+def _trainable_models_for_unified_cli() -> list[str]:
+    return [
+        name
+        for name in available_models()
+        if name not in UNSUPPORTED_UNIFIED_TRAIN_MODELS
+    ]
+
 
 def _json_dict(raw: str) -> dict[str, Any]:
     try:
@@ -384,7 +394,7 @@ def _build_schema() -> list[ArgSpec]:
             flags=("--model",),
             kwargs={
                 "type": str,
-                "choices": available_models(),
+                "choices": _trainable_models_for_unified_cli(),
                 "required": True,
                 "help": "Model to train.",
             },
@@ -699,11 +709,6 @@ def main() -> None:
 
     model_name = args.model.strip().lower()
     target_dataset = args.target_dataset.strip().lower()
-    if model_name in {"pointcleannet", "pointcleannet_outliers"}:
-        raise ValueError(
-            "Model 'pointcleannet[_outliers]' is patch-based. Use src/train_finetune.py "
-            "with --patching-method pointcleannet_radius."
-        )
     if args.resume_checkpoint and args.finetune_checkpoint:
         raise ValueError(
             "Use either --resume-checkpoint or --finetune-checkpoint, not both."

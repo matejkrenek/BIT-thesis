@@ -2,7 +2,7 @@
 Author: Matěj Křenek (xkrenem00)
 Contact: xkrenem00@vutbr.cz
 File: patch.py
-Responsibility: Wrapper dataset for extracting local patches from point clouds using FPS/KNN or PointCleanNet-compatible methods.
+Responsibility: Wrapper dataset for extracting local patches from point clouds using FPS/KNN.
 """
 
 import math
@@ -16,7 +16,7 @@ class PatchWrapperDataset(Dataset):
     """
     Wrapper dataset for extracting local patches from point clouds.
 
-    Supports FPS+KNN and PointCleanNet-compatible radius patching.
+    Supports FPS+KNN patch extraction.
 
     Args:
         dataset: Base dataset.
@@ -25,9 +25,9 @@ class PatchWrapperDataset(Dataset):
         normalize_patches: Whether to normalize each patch.
         overlap_ratio: Allowed overlap between patches.
         max_extra_patches: Max extra patches per sample.
-        patching_method: 'fps_knn' or 'pointcleannet_radius'.
-        patch_radius: Radius for pointcleannet_radius.
-        patch_center: Centering mode for patches.
+        patching_method: Must be 'fps_knn'.
+        patch_radius: Kept for backward compatibility.
+        patch_center: Kept for backward compatibility.
         patch_point_count_std: Stddev for random patch size reduction.
         include_full_objects: If True, keep full object in sample.
     """
@@ -62,10 +62,8 @@ class PatchWrapperDataset(Dataset):
             raise ValueError("patch_size must be > 0")
         if not 0.0 <= self.overlap_ratio < 1.0:
             raise ValueError("overlap_ratio must be in [0.0, 1.0)")
-        if self.patching_method not in {"fps_knn", "pointcleannet_radius"}:
-            raise ValueError(
-                "patching_method must be one of {'fps_knn', 'pointcleannet_radius'}"
-            )
+        if self.patching_method != "fps_knn":
+            raise ValueError("patching_method must be 'fps_knn'")
         if self.patch_radius <= 0.0:
             raise ValueError("patch_radius must be > 0")
         if self.patch_center not in {"point", "mean", "none"}:
@@ -135,149 +133,6 @@ class PatchWrapperDataset(Dataset):
         scale = centered.norm(dim=1).max().clamp_min(1e-8)
         normalized = centered / scale
         return normalized, centroid.squeeze(0), scale
-
-    def _query_ball_point_indices(
-        self,
-        points: torch.Tensor,
-        center: torch.Tensor,
-        radius: float,
-    ) -> torch.Tensor:
-        # PointCleanNet-style neighborhood extraction: radius search around center.
-        dists = torch.norm(points - center.unsqueeze(0), dim=1)
-        return torch.nonzero(dists <= radius, as_tuple=False).squeeze(1)
-
-    def _build_radius_patch(
-        self,
-        points: torch.Tensor,
-        center: torch.Tensor,
-        radius: float,
-        generator: torch.Generator,
-    ) -> tuple[torch.Tensor, int]:
-        inds = self._query_ball_point_indices(
-            points=points, center=center, radius=radius
-        )
-        if inds.numel() == 0:
-            return (
-                torch.zeros(
-                    self.patch_size, 3, dtype=points.dtype, device=points.device
-                ),
-                0,
-            )
-
-        point_count = min(self.patch_size, int(inds.numel()))
-
-        if self.patch_point_count_std > 0.0:
-            low = max(1.0 - self.patch_point_count_std * 2.0, 0.1)
-            ratio = float(
-                torch.empty(1, device=points.device)
-                .uniform_(low, 1.0, generator=generator)
-                .item()
-            )
-            point_count = max(5, int(round(point_count * ratio)))
-            point_count = min(point_count, int(inds.numel()))
-
-        if point_count < int(inds.numel()):
-            perm = torch.randperm(
-                int(inds.numel()), generator=generator, device=points.device
-            )
-            inds = inds[perm[:point_count]]
-
-        patch = torch.zeros(
-            self.patch_size, 3, dtype=points.dtype, device=points.device
-        )
-        patch[:point_count] = points[inds]
-
-        valid_patch = patch[:point_count]
-        if self.patch_center == "mean" and point_count > 0:
-            patch[:point_count] = valid_patch - valid_patch.mean(dim=0, keepdim=True)
-        elif self.patch_center == "point":
-            patch[:point_count] = valid_patch - center.unsqueeze(0)
-        elif self.patch_center == "none":
-            pass
-
-        patch[:point_count] = patch[:point_count] / max(radius, 1e-8)
-        return patch, point_count
-
-    def _build_pointcleannet_radius_patches(
-        self,
-        original_pos: torch.Tensor,
-        defected_pos: torch.Tensor,
-        num_patches: int,
-        index: int,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float]:
-        n = int(defected_pos.shape[0])
-        m = min(max(1, int(num_patches)), n)
-
-        bbdiag = float(
-            torch.norm(
-                defected_pos.max(dim=0).values - defected_pos.min(dim=0).values, p=2
-            ).item()
-        )
-        radius_abs = max(bbdiag * self.patch_radius, 1e-8)
-
-        generator = torch.Generator(device=defected_pos.device)
-        generator.manual_seed(int(index) + 17)
-
-        if m >= n:
-            center_indices = torch.arange(n, device=defected_pos.device)
-        else:
-            center_indices = torch.randperm(
-                n, generator=generator, device=defected_pos.device
-            )[:m]
-
-        centers = defected_pos[center_indices]
-
-        defected_patches = []
-        original_patches = []
-        defected_counts = []
-        original_counts = []
-
-        for center in centers:
-            d_patch, d_count = self._build_radius_patch(
-                points=defected_pos,
-                center=center,
-                radius=radius_abs,
-                generator=generator,
-            )
-            o_patch, o_count = self._build_radius_patch(
-                points=original_pos,
-                center=center,
-                radius=radius_abs,
-                generator=generator,
-            )
-            defected_patches.append(d_patch)
-            original_patches.append(o_patch)
-            defected_counts.append(d_count)
-            original_counts.append(o_count)
-
-        defected_patches_tensor = torch.stack(defected_patches, dim=0)
-        original_patches_tensor = torch.stack(original_patches, dim=0)
-        defected_valid_counts = torch.tensor(
-            defected_counts, dtype=torch.long, device=defected_pos.device
-        )
-        original_valid_counts = torch.tensor(
-            original_counts, dtype=torch.long, device=defected_pos.device
-        )
-
-        covered_points = 0.0
-        if n > 0:
-            all_inds = []
-            for center in centers:
-                inds = self._query_ball_point_indices(defected_pos, center, radius_abs)
-                if inds.numel() > 0:
-                    all_inds.append(inds)
-            if all_inds:
-                covered_points = float(torch.unique(torch.cat(all_inds)).numel())
-
-        coverage_ratio = float(covered_points / max(n, 1))
-        return (
-            original_patches_tensor,
-            defected_patches_tensor,
-            centers,
-            defected_valid_counts,
-            original_valid_counts,
-            coverage_ratio,
-        )
 
     def _build_fps_knn_patches(
         self, pos: torch.Tensor, base_patch_count: int
@@ -372,44 +227,27 @@ class PatchWrapperDataset(Dataset):
 
         original_valid_counts = None
         defected_valid_counts = None
-        if self.patching_method == "pointcleannet_radius":
-            (
-                original_patches_tensor,
-                defected_patches_tensor,
-                centers,
-                defected_valid_counts,
-                original_valid_counts,
-                coverage_ratio,
-            ) = self._build_pointcleannet_radius_patches(
-                original_pos=original_pos,
-                defected_pos=defected_pos,
-                num_patches=m,
-                index=idx,
-            )
+        # Build patch centers and indices from defected cloud, then gather paired
+        # patches from both defected and original cloud using the same centers.
+        defected_patch_indices, centers = self._build_fps_knn_patches(defected_pos, m)
+        original_patch_indices = self._knn_indices(
+            original_pos, centers, self.patch_size
+        )
+
+        defected_patches = defected_pos[defected_patch_indices]  # (M, K, 3)
+        original_patches = original_pos[original_patch_indices]  # (M, K, 3)
+
+        if self.normalize_patches:
+            original_norm = [self._normalize_patch(p)[0] for p in original_patches]
+            defected_norm = [self._normalize_patch(p)[0] for p in defected_patches]
+            original_patches_tensor = torch.stack(original_norm, dim=0)
+            defected_patches_tensor = torch.stack(defected_norm, dim=0)
         else:
-            # Build patch centers and indices from defected cloud, then gather paired
-            # patches from both defected and original cloud using the same centers.
-            defected_patch_indices, centers = self._build_fps_knn_patches(
-                defected_pos, m
-            )
-            original_patch_indices = self._knn_indices(
-                original_pos, centers, self.patch_size
-            )
+            original_patches_tensor = original_patches
+            defected_patches_tensor = defected_patches
 
-            defected_patches = defected_pos[defected_patch_indices]  # (M, K, 3)
-            original_patches = original_pos[original_patch_indices]  # (M, K, 3)
-
-            if self.normalize_patches:
-                original_norm = [self._normalize_patch(p)[0] for p in original_patches]
-                defected_norm = [self._normalize_patch(p)[0] for p in defected_patches]
-                original_patches_tensor = torch.stack(original_norm, dim=0)
-                defected_patches_tensor = torch.stack(defected_norm, dim=0)
-            else:
-                original_patches_tensor = original_patches
-                defected_patches_tensor = defected_patches
-
-            covered_points = defected_patch_indices.reshape(-1).unique().numel()
-            coverage_ratio = float(covered_points / n_points_defected)
+        covered_points = defected_patch_indices.reshape(-1).unique().numel()
+        coverage_ratio = float(covered_points / n_points_defected)
 
         output = Data(
             original_pos=original_patches_tensor,

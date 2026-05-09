@@ -12,7 +12,7 @@ from core.datasets import (
     create_basic_reconstruction_dataset,
 )
 from dataset import ModelNetDataset, ShapeNetDataset
-from dataset.wrapper import NormalizeWrapperDataset, PatchWrapperDataset
+from dataset.wrapper import NormalizeWrapperDataset
 from visualize.dataset_gallery import (
     GalleryConfig,
     _to_numpy_points,
@@ -105,13 +105,9 @@ def _build_dataset(
     args,
     dataset_name: Optional[str] = None,
     mode: Optional[str] = None,
-    split_into_patches: Optional[bool] = None,
 ):
     dataset_name = dataset_name or args.dataset
     mode = mode or args.mode
-    split_into_patches = (
-        args.split_into_patches if split_into_patches is None else split_into_patches
-    )
 
     base_dataset = _build_base_dataset(args, dataset_name)
 
@@ -119,21 +115,6 @@ def _build_dataset(
         dataset = base_dataset
         if args.normalize:
             dataset = NormalizeWrapperDataset(dataset)
-
-        if split_into_patches:
-            dataset = PatchWrapperDataset(
-                dataset=dataset,
-                patch_size=args.patch_size,
-                num_patches=args.num_patches,
-                normalize_patches=args.normalize_patches,
-                overlap_ratio=args.overlap_ratio,
-                max_extra_patches=args.max_extra_patches,
-                patching_method=args.patching_method,
-                patch_radius=args.patch_radius,
-                patch_center=args.patch_center,
-                patch_point_count_std=args.patch_point_count_std,
-                include_full_objects=args.include_full_objects_in_patches,
-            )
         return dataset
 
     creator = (
@@ -152,17 +133,6 @@ def _build_dataset(
         dense_num_points=args.dense_num_points,
         normalize=args.normalize,
         visualize=args.open_viewer,
-        split_into_patches=split_into_patches,
-        patch_size=args.patch_size,
-        num_patches=args.num_patches,
-        normalize_patches=args.normalize_patches,
-        overlap_ratio=args.overlap_ratio,
-        max_extra_patches=args.max_extra_patches,
-        patching_method=args.patching_method,
-        patch_radius=args.patch_radius,
-        patch_center=args.patch_center,
-        patch_point_count_std=args.patch_point_count_std,
-        include_full_objects_in_patches=args.include_full_objects_in_patches,
     )
 
 
@@ -272,10 +242,9 @@ def _resolve_output_stem(
     *,
     dataset_name: str,
     mode: str,
-    split_into_patches: bool,
     suite_mode: bool,
 ) -> str:
-    default_stem = f"{dataset_name}_{mode}{'_patch' if split_into_patches else ''}"
+    default_stem = f"{dataset_name}_{mode}"
     if suite_mode or not args.output_name:
         return default_stem
 
@@ -375,27 +344,13 @@ def _build_suite_specs(args: argparse.Namespace):
             {
                 "dataset": args.dataset,
                 "mode": args.mode,
-                "split_into_patches": bool(args.split_into_patches),
             }
         ]
 
     specs = []
     for dataset_name in ("shapenet", "modelnet"):
         for mode in ("pure", "basic", "advanced"):
-            specs.append(
-                {
-                    "dataset": dataset_name,
-                    "mode": mode,
-                    "split_into_patches": False,
-                }
-            )
-            specs.append(
-                {
-                    "dataset": dataset_name,
-                    "mode": mode,
-                    "split_into_patches": True,
-                }
-            )
+            specs.append({"dataset": dataset_name, "mode": mode})
     return specs
 
 
@@ -423,20 +378,6 @@ def _build_summary_payload(
             "dense_num_points": int(args.dense_num_points),
             "normalize": bool(args.normalize),
             "show_defect_log": bool(args.show_defect_log),
-        },
-        "patching": {
-            "patch_size": int(args.patch_size),
-            "num_patches": args.num_patches,
-            "normalize_patches": bool(args.normalize_patches),
-            "overlap_ratio": float(args.overlap_ratio),
-            "max_extra_patches": args.max_extra_patches,
-            "patching_method": args.patching_method,
-            "patch_radius": float(args.patch_radius),
-            "patch_center": args.patch_center,
-            "patch_point_count_std": float(args.patch_point_count_std),
-            "include_full_objects_in_patches": bool(
-                args.include_full_objects_in_patches
-            ),
         },
         "galleries": [],
     }
@@ -474,7 +415,7 @@ def main():
     parser.add_argument(
         "--generate-suite",
         action="store_true",
-        help="Generate full gallery suite: shapenet/modelnet x pure/basic/advanced x normal/patch.",
+        help="Generate full gallery suite: shapenet/modelnet x pure/basic/advanced.",
     )
 
     parser.add_argument(
@@ -549,43 +490,6 @@ def main():
     parser.add_argument("--dense-num-points", type=int, default=100000)
     parser.add_argument("--normalize", action="store_true", default=True)
     parser.add_argument("--no-normalize", dest="normalize", action="store_false")
-    parser.add_argument("--split-into-patches", action="store_true")
-    parser.add_argument("--patch-size", type=int, default=8192)
-    parser.add_argument("--num-patches", type=int, default=None)
-    parser.add_argument("--normalize-patches", action="store_true")
-    parser.add_argument("--overlap-ratio", type=float, default=0.5)
-    parser.add_argument("--max-extra-patches", type=int, default=None)
-    parser.add_argument(
-        "--patching-method",
-        type=str,
-        default="fps_knn",
-        choices=["fps_knn", "pointcleannet_radius"],
-        help="Patch extraction algorithm. pointcleannet_radius emulates PointCleanNet radius patches.",
-    )
-    parser.add_argument(
-        "--patch-radius",
-        type=float,
-        default=0.05,
-        help="Radius as a fraction of cloud bounding-box diagonal for pointcleannet_radius mode.",
-    )
-    parser.add_argument(
-        "--patch-center",
-        type=str,
-        default="point",
-        choices=["point", "mean", "none"],
-        help="Centering mode for pointcleannet_radius patches.",
-    )
-    parser.add_argument(
-        "--patch-point-count-std",
-        type=float,
-        default=0.0,
-        help="Optional random reduction of points per patch in pointcleannet_radius mode.",
-    )
-    parser.add_argument(
-        "--include-full-objects-in-patches",
-        action="store_true",
-        help="When patching is enabled, keep whole-object tensors in each patched sample as original_full_pos/defected_full_pos.",
-    )
 
     parser.add_argument(
         "--views",
@@ -755,18 +659,14 @@ def main():
     for spec in suite_specs:
         spec_dataset = spec["dataset"]
         spec_mode = spec["mode"]
-        spec_patch = spec["split_into_patches"]
 
         dataset = _build_dataset(
             args,
             dataset_name=spec_dataset,
             mode=spec_mode,
-            split_into_patches=spec_patch,
         )
         if len(dataset) == 0:
-            print(
-                f"[WARN] Skipping empty dataset for {spec_dataset}/{spec_mode}/patch={spec_patch}"
-            )
+            print(f"[WARN] Skipping empty dataset for {spec_dataset}/{spec_mode}")
             continue
 
         if args.open_viewer:
@@ -790,16 +690,13 @@ def main():
         )
 
         if not pointclouds:
-            print(
-                f"[WARN] No valid samples for {spec_dataset}/{spec_mode}/patch={spec_patch}"
-            )
+            print(f"[WARN] No valid samples for {spec_dataset}/{spec_mode}")
             continue
 
         stem = _resolve_output_stem(
             args,
             dataset_name=spec_dataset,
             mode=spec_mode,
-            split_into_patches=spec_patch,
             suite_mode=args.generate_suite,
         )
         output_paths = _save_gallery_in_formats(
@@ -807,7 +704,7 @@ def main():
             output_stem=stem,
             formats=formats,
             pointclouds=pointclouds,
-            dataset_name=f"{spec_dataset.capitalize()} ({spec_mode}{' + patches' if spec_patch else ''})",
+            dataset_name=f"{spec_dataset.capitalize()} ({spec_mode})",
             sample_indices=kept_indices,
             descriptions=descriptions,
             badge_labels=badge_labels,
@@ -819,7 +716,6 @@ def main():
             {
                 "dataset": spec_dataset,
                 "mode": spec_mode,
-                "split_into_patches": bool(spec_patch),
                 "total_samples_in_dataset": int(len(dataset)),
                 "requested_sample_count": int(len(chosen_indices)),
                 "rendered_sample_count": int(len(pointclouds)),
@@ -830,7 +726,7 @@ def main():
         )
         generated_count += 1
         print(
-            f"[INFO] Generated {spec_dataset}/{spec_mode}/patch={spec_patch} -> {', '.join(output_paths)}"
+            f"[INFO] Generated {spec_dataset}/{spec_mode} -> {', '.join(output_paths)}"
         )
 
     if generated_count == 0:
