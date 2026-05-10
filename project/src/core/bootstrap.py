@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: bootstrap.py
+Responsibility: Initializes shared runtime configuration, directories, random seeds, and device selection for scripts.
+"""
+
 from __future__ import annotations
 
 import os
@@ -13,6 +20,8 @@ import open3d as o3d
 
 @dataclass(frozen=True)
 class BootstrapConfig:
+    """Shared runtime configuration returned by bootstrap()."""
+
     device: torch.device
     seed: int
     output_dir: Path

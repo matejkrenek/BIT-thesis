@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: patchbased.py
+Responsibility: Patch-based point cloud visualization, patch completion, and patch reassembly CLI workflow.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -26,12 +33,14 @@ from core.cli_parsing import (
     parse_views as _parse_views,
     parse_xyz_degrees as _parse_xyz_degrees,
 )
+from core.logger import logger
 from dataset import ModelNetDataset, ShapeNetDataset
 from dataset.wrapper import NormalizeWrapperDataset, PatchWrapperDataset
 from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
 
 
 def _parse_model_spec(value: str) -> Tuple[str, str, Path]:
+    """Parse model spec in format name:model_type:checkpoint and validate it."""
     parts = value.split(":", 2)
     if len(parts) != 3:
         raise ValueError(
@@ -48,6 +57,7 @@ def _parse_model_spec(value: str) -> Tuple[str, str, Path]:
 
 
 def _resolve_run_dir(args: argparse.Namespace) -> Tuple[Path, str]:
+    """Create run directory and return (run_dir, run_name)."""
     output_root = Path(args.output_dir).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     run_name = args.run_name or datetime.now().strftime("run_%Y%m%d_%H%M%S")
@@ -61,6 +71,7 @@ def _build_summary_payload(
     run_name: str,
     formats: Sequence[str],
 ) -> Dict[str, Any]:
+    """Build JSON-serializable run summary payload."""
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "run_name": run_name,
@@ -93,6 +104,7 @@ def _build_summary_payload(
 
 
 def _extract_sample_clouds(sample: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """Extract original and defected clouds as float32 NumPy arrays of shape (N, 3)."""
     if hasattr(sample, "original_pos") and hasattr(sample, "defected_pos"):
         original = sample.original_pos
         defected = sample.defected_pos
@@ -117,6 +129,7 @@ def _extract_sample_clouds(sample: Any) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def _extract_sample_category(sample: Any) -> str:
+    """Extract sample category text when available."""
     if sample is None:
         return ""
 
@@ -139,11 +152,13 @@ def _extract_sample_category(sample: Any) -> str:
 
 
 def _build_category_caption(category: str) -> str:
+    """Build gallery caption from sample category."""
     category = str(category).strip()
     return f"category: {category}" if category else ""
 
 
 def _build_base_dataset(args: argparse.Namespace):
+    """Create base dataset object based on selected dataset and category filter."""
     categories = _parse_csv(args.categories) if args.categories else None
     if args.dataset == "shapenet":
         return ShapeNetDataset(
@@ -157,6 +172,7 @@ def _build_base_dataset(args: argparse.Namespace):
 
 
 def _build_full_dataset(args: argparse.Namespace):
+    """Build full dataset for selected corruption mode and normalization options."""
     base_dataset = _build_base_dataset(args)
 
     if args.mode == "pure":
@@ -184,6 +200,7 @@ def _build_full_dataset(args: argparse.Namespace):
 
 
 def _build_patch_dataset(args: argparse.Namespace):
+    """Build full and patch-wrapped datasets used by patch-based workflow."""
     full_dataset = _build_full_dataset(args)
     patch_dataset = PatchWrapperDataset(
         dataset=full_dataset,
@@ -206,23 +223,13 @@ def _valid_patch_points(
     idx: int,
     valid_counts: Optional[np.ndarray],
 ) -> np.ndarray:
+    """Return valid points from a patch using optional per-patch valid counts."""
     patch = np.asarray(patches[idx], dtype=np.float32)
     if valid_counts is None:
         return patch
     count = int(valid_counts[idx])
     count = max(0, min(count, patch.shape[0]))
     return patch[:count]
-
-
-def _restore_patch_coords(
-    patch_points: np.ndarray,
-    center: np.ndarray,
-    *,
-    method: str,
-    patch_center: str,
-    patch_radius: float,
-) -> np.ndarray:
-    return patch_points
 
 
 def _reassemble_from_patches(
@@ -236,19 +243,18 @@ def _reassemble_from_patches(
     target_points: int,
     seed: int,
 ) -> np.ndarray:
+    """Merge patch clouds into one cloud and optionally downsample to target size using FPS."""
     pieces: List[np.ndarray] = []
     for i in range(int(patches.shape[0])):
         pts = _valid_patch_points(patches, i, valid_counts)
         if pts.size == 0:
             continue
-        restored = _restore_patch_coords(
-            pts,
-            np.asarray(centers[i], dtype=np.float32),
-            method=method,
-            patch_center=patch_center,
-            patch_radius=patch_radius,
-        )
-        pieces.append(restored.astype(np.float32, copy=False))
+        # Keep compatibility with future patch coordinate restoration hooks.
+        _ = np.asarray(centers[i], dtype=np.float32)
+        _ = method
+        _ = patch_center
+        _ = patch_radius
+        pieces.append(pts.astype(np.float32, copy=False))
 
     if not pieces:
         return np.zeros((0, 3), dtype=np.float32)
@@ -256,9 +262,11 @@ def _reassemble_from_patches(
     merged = np.concatenate(pieces, axis=0)
 
     if target_points > 0 and merged.shape[0] > target_points:
-        rng = np.random.default_rng(int(seed))
-        sel = rng.choice(merged.shape[0], size=target_points, replace=False)
-        merged = merged[sel]
+        # Keep seed argument for call-site compatibility even though FPS is deterministic.
+        _ = int(seed)
+        merged_t = torch.from_numpy(merged).unsqueeze(0)
+        merged_t, _ = sample_farthest_points(merged_t, K=int(target_points))
+        merged = merged_t[0].detach().cpu().numpy()
 
     return merged.astype(np.float32, copy=False)
 
@@ -270,6 +278,7 @@ def _prepare_model_input(
     seed: int,
     device: torch.device,
 ) -> torch.Tensor:
+    """Prepare one patch as model input with FPS downsample or random upsample."""
     tensor = torch.as_tensor(
         patch_points, dtype=torch.float32, device=device
     ).unsqueeze(0)
@@ -297,6 +306,7 @@ def _predict_patch_completion(
     seed: int,
     device: torch.device,
 ) -> np.ndarray:
+    """Run completion model on one patch and return predicted (N, 3) points."""
     in_t = _prepare_model_input(
         patch_points,
         input_points=input_points,
@@ -332,6 +342,7 @@ def _save_gallery_in_formats(
     config: GalleryConfig,
     seed: int,
 ) -> List[Path]:
+    """Save gallery in requested output formats and return created paths."""
     output_paths: List[Path] = []
     for fmt in formats:
         out_path = run_dir / f"{output_stem}.{fmt}"
@@ -350,6 +361,7 @@ def _save_gallery_in_formats(
 
 
 def _open_viewer(clouds: Sequence[np.ndarray], labels: Sequence[str]) -> None:
+    """Open Polyscope viewer for provided labeled point clouds."""
     import polyscope as ps
 
     ps.init()
@@ -362,6 +374,7 @@ def _open_viewer(clouds: Sequence[np.ndarray], labels: Sequence[str]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build CLI parser for patch-based visualization and reassembly actions."""
     parser = argparse.ArgumentParser(
         description=(
             "Patch-based workflow: visualize extracted patches, reassemble patches into "
@@ -500,8 +513,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI entry point for patch-based point cloud workflows."""
     load_dotenv()
 
+    # Build parser, parse args, and prepare datasets
     parser = build_parser()
     args = parser.parse_args()
 
@@ -557,6 +572,7 @@ def main() -> None:
     completion_model = None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # If completion is requested, parse model spec, load model, and prepare for inference.
     if args.action == "complete_and_reassemble":
         if not args.model_spec:
             raise ValueError("--model-spec is required for complete_and_reassemble")
@@ -581,6 +597,7 @@ def main() -> None:
     defected_patch_clouds: List[np.ndarray] = []
     completed_patch_clouds: List[np.ndarray] = []
 
+    # Handle selected action: visualize patches, reassemble from patches, or complete and reassemble.
     if args.action == "visualize_patches":
         clouds.append(full_original)
         labels.append("Original full")
@@ -596,22 +613,8 @@ def main() -> None:
             original_patch_pts = _valid_patch_points(
                 original_patches, patch_idx, defected_valid_counts
             )
-            original_patch_pts = _restore_patch_coords(
-                original_patch_pts,
-                patch_centers[patch_idx],
-                method=args.patching_method,
-                patch_center=args.patch_center,
-                patch_radius=args.patch_radius,
-            )
             patch_pts = _valid_patch_points(
                 defected_patches, patch_idx, defected_valid_counts
-            )
-            patch_pts = _restore_patch_coords(
-                patch_pts,
-                patch_centers[patch_idx],
-                method=args.patching_method,
-                patch_center=args.patch_center,
-                patch_radius=args.patch_radius,
             )
             clouds.append(original_patch_pts)
             labels.append(f"Original patch {patch_idx}")
@@ -751,6 +754,7 @@ def main() -> None:
     }
     config = GalleryConfig(**config_kwargs)
 
+    # Generate output images if enabled
     output_paths: List[Path] = []
     if args.generate_images:
         gallery_pointclouds: List[List[np.ndarray]]
@@ -852,10 +856,11 @@ def main() -> None:
         summary["outputs"] = [
             os.path.relpath(str(p), str(run_dir)) for p in output_paths
         ]
-        print(f"[INFO] Generated outputs: {', '.join(str(p) for p in output_paths)}")
+        logger.info("Generated outputs: {}", ", ".join(str(p) for p in output_paths))
     else:
-        print("[INFO] Image generation disabled (--no-generate-images).")
+        logger.info("Image generation disabled (--no-generate-images).")
 
+    # Open viewer if enabled
     if args.open_viewer:
         _open_viewer(clouds, labels)
 
@@ -863,8 +868,8 @@ def main() -> None:
     with summary_path.open("w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
 
-    print(f"[INFO] Saved run outputs to: {run_dir}")
-    print(f"[INFO] Saved run summary to: {summary_path}")
+    logger.info("Saved run outputs to: {}", run_dir)
+    logger.info("Saved run summary to: {}", summary_path)
 
 
 if __name__ == "__main__":

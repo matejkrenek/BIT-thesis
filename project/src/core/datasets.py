@@ -1,6 +1,15 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: datasets.py
+Responsibility: Builds reconstruction datasets and train/validation/test dataloaders with configurable defect and patch pipelines.
+"""
+
 from typing import Callable, Optional, Tuple
 
 import numpy as np
+import torch
+from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 
 from dataset import ShapeNetDataset
@@ -20,9 +29,6 @@ from dataset.wrapper import (
     PatchWrapperDataset,
     StagedAugmentWrapperDataset,
 )
-import torch
-from torch.utils.data import DataLoader, random_split
-from torch.utils.data.dataset import Dataset
 
 
 def _prepare_dataset_pipeline(
@@ -48,6 +54,7 @@ def _prepare_dataset_pipeline(
     defect_cache_read: bool,
     defect_cache_write: bool,
 ) -> Dataset:
+    """Apply a sequence of dataset wrappers based on the provided configuration."""
     dataset: Dataset = base_dataset
 
     if dense:
@@ -330,7 +337,10 @@ def create_advanced_reconstruction_dataset(
 
 
 def _collate_fn(batch):
+    """Custom collate function to handle batches of point cloud pairs with flexible input formats."""
+
     def _extract_pair(item):
+        """Extract (original, defected) point cloud pair from a batch item with flexible structure."""
         if item is None:
             return None
 

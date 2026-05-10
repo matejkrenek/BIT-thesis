@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: inference_pipeline.py
+Responsibility: Runs staged point cloud inference pipeline (outlier filtering, denoising, completion) and exports outputs with reports.
+"""
+
 from __future__ import annotations
 
 import json
@@ -13,6 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from core.bootstrap import bootstrap
+from core.logger import logger
 from core.model_defaults import get_default_model_params
 from core.models import create_model, load_model_checkpoint
 from dataset.wrapper import PointcloudPatchDataset
@@ -25,7 +33,7 @@ class InferenceOptions:
     report_json_path: str
     input_npz_key: str = "points"
     output_npz_key: str = "points"
-    seed: int = 40938661
+    seed: int = 42
     workers: int = 1
     batch_size: int = 128
     cache_capacity: int = 100
@@ -48,12 +56,16 @@ class InferenceOptions:
 
 @dataclass
 class StageTiming:
+    """Represents the timing of a single stage in the inference pipeline."""
+
     name: str
     seconds: float
 
 
 @dataclass
 class InferenceArtifacts:
+    """Holds intermediate and final point cloud artifacts from the inference pipeline."""
+
     input_cloud: np.ndarray
     outlier_filtered_before: np.ndarray | None
     denoised: np.ndarray | None
@@ -66,6 +78,8 @@ class InferenceArtifacts:
 
 @dataclass
 class InferenceResult:
+    """Encapsulates the full result of an inference run, including options, timings, input/output info, and artifacts."""
+
     options: InferenceOptions
     stage_timings: list[StageTiming]
     input_info: dict[str, Any]
@@ -86,6 +100,8 @@ class InferenceResult:
 
 
 class _SingleCloudDataset(Dataset):
+    """A simple dataset that wraps a single pair of defected and original point clouds for patch extraction."""
+
     def __init__(self, defected: np.ndarray, original: np.ndarray):
         self.defected = np.asarray(defected, dtype=np.float32)
         self.original = np.asarray(original, dtype=np.float32)
@@ -103,6 +119,7 @@ class _SingleCloudDataset(Dataset):
 
 
 def _safe_first_patch_radius(value, fallback: float) -> float:
+    """Safely extract a single float patch radius from a flexible input format, with fallback."""
     if isinstance(value, (list, tuple)) and len(value) > 0:
         return float(value[0])
     try:
@@ -119,10 +136,11 @@ def _timed(
     progress: dict[str, int] | None = None,
     **kwargs,
 ):
+    """Run a function with timing and optional progress tracking for the inference pipeline."""
     if progress is not None:
         start_idx = int(progress.get("done", 0)) + 1
         total = int(progress.get("total", 0))
-        print(f"[progress {start_idx}/{total}] START {stage}")
+        logger.info("[progress {}/{}] START {}", start_idx, total, stage)
 
     t0 = time.perf_counter()
     out = fn(*args, **kwargs)
@@ -133,12 +151,13 @@ def _timed(
         progress["done"] = int(progress.get("done", 0)) + 1
         done = int(progress.get("done", 0))
         total = int(progress.get("total", 0))
-        print(f"[progress {done}/{total}] DONE {stage} ({elapsed:.3f}s)")
+        logger.info("[progress {}/{}] DONE {} ({:.3f}s)", done, total, stage, elapsed)
 
     return out
 
 
 def _load_point_cloud(path: Path, npz_key: str) -> np.ndarray:
+    """Load a point cloud from a .npz or .ply file, with flexible handling of NPZ key and PLY formats."""
     suffix = path.suffix.lower()
     if suffix == ".npz":
         npz = np.load(str(path))
@@ -184,6 +203,7 @@ def _load_point_cloud(path: Path, npz_key: str) -> np.ndarray:
 
 
 def _save_point_cloud(path: Path, points: np.ndarray, npz_key: str) -> None:
+    """Save a point cloud to a .npz or .ply file, with flexible handling of NPZ key and PLY formats."""
     path.parent.mkdir(parents=True, exist_ok=True)
     suffix = path.suffix.lower()
 
@@ -211,6 +231,7 @@ def _save_point_cloud(path: Path, points: np.ndarray, npz_key: str) -> None:
 
 
 def _ensure_points(points: np.ndarray) -> np.ndarray:
+    """Ensure that the input array is a valid (N,3) point cloud."""
     pts = np.asarray(points, dtype=np.float32)
     if pts.ndim != 2 or pts.shape[1] < 3:
         raise ValueError(f"Point cloud must have shape (N,3), got {pts.shape}")
@@ -221,19 +242,25 @@ def _ensure_points(points: np.ndarray) -> np.ndarray:
 def _downsample_points_max(
     points: np.ndarray, *, max_points: int, seed: int
 ) -> np.ndarray:
+    """Downsample a point cloud to at most max_points using farthest point sampling."""
+
     pts = _ensure_points(points)
     max_pts = int(max_points)
     if max_pts <= 0 or int(pts.shape[0]) <= max_pts:
         return pts
 
-    rng = np.random.default_rng(int(seed))
-    idx = rng.choice(int(pts.shape[0]), size=max_pts, replace=False)
-    return np.ascontiguousarray(pts[idx], dtype=np.float32)
+    # Keep the argument for call-site compatibility even though FPS itself is deterministic.
+    _ = int(seed)
+
+    pts_t = torch.from_numpy(pts).unsqueeze(0)
+    sampled_t, _ = sample_farthest_points(pts_t, K=max_pts)
+    return np.ascontiguousarray(sampled_t[0].detach().cpu().numpy(), dtype=np.float32)
 
 
 def _load_checkpoint_flexible(
     model, checkpoint_path: Path, device: torch.device
 ) -> None:
+    """Load model weights from a checkpoint with flexible handling of state dict formats and key structures."""
     try:
         load_model_checkpoint(
             model=model,
@@ -285,6 +312,7 @@ def _build_patch_dataset(
     patch_center: str,
     point_tuple: int,
 ) -> PointcloudPatchDataset:
+    """Build a PointcloudPatchDataset for the given defected and original point clouds with specified patch parameters."""
     ds = _SingleCloudDataset(defected=defected_np, original=original_np)
     return PointcloudPatchDataset(
         dataset=ds,
@@ -311,6 +339,7 @@ def _predict_denoised_centers(
     total_patches: int,
     progress_desc: str,
 ) -> torch.Tensor:
+    """Predict denoised patch centers from the model using the provided dataloader, with flexible handling of STN and PCA options."""
     out = torch.zeros(total_patches, 3, dtype=torch.float32)
     patch_offset = 0
 
@@ -366,6 +395,7 @@ def _predict_outlier_scores(
     total_patches: int,
     progress_desc: str,
 ) -> torch.Tensor:
+    """Predict outlier scores from the model using the provided dataloader, with flexible handling of output formats."""
     scores = torch.zeros(total_patches, dtype=torch.float32)
     patch_offset = 0
 
@@ -412,6 +442,7 @@ def _apply_outlier_filter(
     threshold: float,
     stage_label: str,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Apply outlier filtering to the input point cloud using the provided outlier model and patch-based scoring."""
     outlier_dataset = _build_patch_dataset(
         defected_np=cloud_np,
         original_np=reference_np,
@@ -465,6 +496,7 @@ def _run_completion_with_fps_input(
     input_points: int,
     seed: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Run point cloud completion using the provided completion model, with flexible handling of input point sampling and output formats."""
     pts = _ensure_points(points_np)
 
     target_input = max(1, int(input_points))
@@ -511,6 +543,7 @@ def _run_completion_with_fps_input(
 
 
 def _make_completion_config(model_name: str) -> dict[str, Any]:
+    """Create a configuration dictionary for the completion model based on its name, using defaults."""
     name = model_name.strip().lower()
     if name not in ("pcn", "pointr", "adapointr"):
         raise ValueError(
@@ -524,6 +557,7 @@ def _make_completion_config(model_name: str) -> dict[str, Any]:
 
 
 def run_inference(options: InferenceOptions) -> InferenceResult:
+    """Run the full inference pipeline based on the provided options, returning an InferenceResult with all details and artifacts."""
     input_path = Path(options.input_path).expanduser().resolve()
     output_path = Path(options.output_path).expanduser().resolve()
     report_path = Path(options.report_json_path).expanduser().resolve()
@@ -545,9 +579,10 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
     planned_stages.append("save_output")
 
     progress = {"done": 0, "total": len(planned_stages)}
-    print(
-        f"[progress] Pipeline stages ({len(planned_stages)}): "
-        + " -> ".join(planned_stages)
+    logger.info(
+        "[progress] Pipeline stages ({}): {}",
+        len(planned_stages),
+        " -> ".join(planned_stages),
     )
 
     cfg = bootstrap(seed=int(options.seed), data_subdir=None)
@@ -570,11 +605,12 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
         seed=int(options.seed),
     )
     if int(input_cloud.shape[0]) != input_before_downsample:
-        print(
-            "[input] downsampled point cloud: "
-            f"{input_before_downsample} -> {int(input_cloud.shape[0])} points"
+        logger.info(
+            "[input] downsampled point cloud: {} -> {} points",
+            input_before_downsample,
+            int(input_cloud.shape[0]),
         )
-    print(f"[input] loaded point cloud: {int(input_cloud.shape[0])} points")
+    logger.info("[input] loaded point cloud: {} points", int(input_cloud.shape[0]))
 
     denoise_model_name = "pointcleannet"
     denoise_default_params = get_default_model_params(denoise_model_name)
@@ -880,6 +916,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
 def visualize_result_polyscope(
     result: InferenceResult, *, point_radius: float | None = None
 ) -> None:
+    """Visualize the input, intermediate, and output point clouds from the inference result using Polyscope."""
     import polyscope as ps
 
     radius = (

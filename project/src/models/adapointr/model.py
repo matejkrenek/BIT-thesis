@@ -842,7 +842,6 @@ class DGCNN_Grouper(nn.Module):
         """
         K has to be 16
         """
-        print("using group version 2")
         self.k = k
         # self.knn = KNN(k=k, transpose_mode=False)
         self.input_trans = nn.Conv1d(3, 8, 1)

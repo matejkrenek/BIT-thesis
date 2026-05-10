@@ -23,6 +23,7 @@ from mini_dust3r.model import AsymmetricCroCo3DStereo
 from mini_dust3r.utils.image import load_images
 import cv2
 import trimesh
+from core.logger import logger
 from notifications import DiscordNotifier
 
 
@@ -112,8 +113,10 @@ class PhotogrammetricDataset(Dataset):
             raise ValueError("No image files found")
 
         if num_frames >= len(all_frames):
-            print(
-                f"Warning: Requested {num_frames} frames but only {len(all_frames)} available. Using all frames."
+            logger.warning(
+                "Requested {} frames but only {} available. Using all frames.",
+                num_frames,
+                len(all_frames),
             )
             selected_frames = all_frames
         else:
@@ -156,8 +159,11 @@ class PhotogrammetricDataset(Dataset):
                     f"Unknown strategy: {strategy}. Use 'uniform', 'keyframe', or 'random'"
                 )
 
-        print(
-            f"Selected {len(selected_frames)} frames from {len(all_frames)} total frames using '{strategy}' strategy"
+        logger.info(
+            "Selected {} frames from {} total frames using '{}' strategy",
+            len(selected_frames),
+            len(all_frames),
+            strategy,
         )
 
         return [str(frame) for frame in selected_frames]

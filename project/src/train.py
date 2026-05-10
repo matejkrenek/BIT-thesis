@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: train.py
+Responsibility: Unified CLI training entry point for point cloud reconstruction models with checkpointing, plotting, and optional Discord notifications.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -33,18 +40,15 @@ from core import (
 )
 from notifications import DiscordNotifier
 
-UNSUPPORTED_UNIFIED_TRAIN_MODELS = {"pointcleannet", "pointcleannet_outliers"}
-
 
 def _trainable_models_for_unified_cli() -> list[str]:
-    return [
-        name
-        for name in available_models()
-        if name not in UNSUPPORTED_UNIFIED_TRAIN_MODELS
-    ]
+    """Return model names supported by this unified training CLI."""
+    allowed = {"pcn", "pointr", "adapointr"}
+    return [name for name in available_models() if name in allowed]
 
 
 def _json_dict(raw: str) -> dict[str, Any]:
+    """Parse JSON string expected to be an object used for model params override."""
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -57,6 +61,7 @@ def _json_dict(raw: str) -> dict[str, Any]:
 
 
 def _extract_cli_value(argv: list[str], option: str) -> str | None:
+    """Extract CLI option value from argv for '--opt value' and '--opt=value' forms."""
     for idx, token in enumerate(argv):
         if token == option:
             if idx + 1 < len(argv):
@@ -68,6 +73,7 @@ def _extract_cli_value(argv: list[str], option: str) -> str | None:
 
 
 def _parse_gpu_ids(raw: str) -> list[int]:
+    """Parse comma-separated GPU IDs and return sorted unique non-negative IDs."""
     ids = []
     for part in raw.split(","):
         token = part.strip()
@@ -85,6 +91,7 @@ def _parse_gpu_ids(raw: str) -> list[int]:
 
 
 def _preconfigure_cuda_visible_devices(argv: list[str]) -> list[int] | None:
+    """Set CUDA_VISIBLE_DEVICES from early CLI hints before torch CUDA initialization."""
     raw_gpu_ids = _extract_cli_value(argv, "--gpu-ids")
     raw_num_gpus = _extract_cli_value(argv, "--num-gpus")
 
@@ -105,6 +112,7 @@ def _preconfigure_cuda_visible_devices(argv: list[str]) -> list[int] | None:
 
 
 def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
+    """Return wrapped module when model is in DataParallel, otherwise return model."""
     return model.module if hasattr(model, "module") else model
 
 
@@ -114,35 +122,21 @@ def _compute_loss(
     prediction,
     target: torch.Tensor,
 ) -> tuple[torch.Tensor, dict[str, float]]:
+    """Compute model-specific training loss and return (total_loss, metric_breakdown)."""
     core_model = _unwrap_model(model)
 
     if model_name == "pcn":
         total = core_model.compute_loss(prediction, target)
         return total, {"total": float(total.detach().item())}
 
-    if model_name == "pointr":
+    if model_name in {"pointr", "adapointr"}:
         loss_value = core_model.get_loss(prediction, target)
         if isinstance(loss_value, (tuple, list)):
             pieces = [item for item in loss_value if torch.is_tensor(item)]
             if not pieces:
-                raise ValueError("PoinTr loss tuple did not contain tensor items")
-            total = sum(pieces)
-            metrics = {
-                "total": float(total.detach().item()),
-                "coarse": float(pieces[0].detach().item()),
-                "fine": float(pieces[1].detach().item()) if len(pieces) > 1 else 0.0,
-            }
-            return total, metrics
-
-        total = loss_value
-        return total, {"total": float(total.detach().item())}
-
-    if model_name == "adapointr":
-        loss_value = core_model.get_loss(prediction, target)
-        if isinstance(loss_value, (tuple, list)):
-            pieces = [item for item in loss_value if torch.is_tensor(item)]
-            if not pieces:
-                raise ValueError("AdaPoinTr loss tuple did not contain tensor items")
+                raise ValueError(
+                    f"{model_name} loss tuple did not contain tensor items"
+                )
             total = sum(pieces)
             metrics = {
                 "total": float(total.detach().item()),
@@ -169,6 +163,7 @@ def _run_epoch(
     epoch: int | None = None,
     total_epochs: int | None = None,
 ) -> tuple[float, dict[str, float]]:
+    """Run one train/val epoch and return average total/coarse/fine losses."""
     if training and optimizer is None:
         raise ValueError("optimizer is required when training=True")
 
@@ -239,6 +234,7 @@ def _run_epoch(
 def _save_loss_plot(
     train_losses: list[float], val_losses: list[float], path: Path
 ) -> None:
+    """Save train/val loss curve to PNG file."""
     plt.figure(figsize=(8, 5))
     plt.plot(train_losses, label="train", linewidth=2)
     plt.plot(val_losses, label="val", linewidth=2)
@@ -249,6 +245,11 @@ def _save_loss_plot(
     plt.tight_layout()
     plt.savefig(path)
     plt.close()
+
+
+def _format_duration(seconds: int) -> str:
+    """Format seconds as '<h>h <m>m <s>s'."""
+    return f"{seconds // 3600}h {(seconds % 3600) // 60}m {seconds % 60}s"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -460,9 +461,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Parse CLI arguments, run training loop, and persist artifacts."""
     preselected_gpu_ids = _preconfigure_cuda_visible_devices(sys.argv[1:])
     epochs_cli_provided = _extract_cli_value(sys.argv[1:], "--epochs") is not None
 
+    # Bootstrap configuration, prepare output directories, and log initial settings
     parser = build_parser()
     args = parser.parse_args()
     cfg = bootstrap(seed=int(args.seed), data_subdir=None)
@@ -487,6 +490,7 @@ def main() -> None:
             "Use either --resume-checkpoint or --finetune-checkpoint, not both."
         )
 
+    # Adjust default epochs for ModelNet finetuning when not explicitly set by CLI.
     effective_epochs = int(args.epochs)
     if (
         target_dataset == "modelnet"
@@ -499,6 +503,7 @@ def main() -> None:
             "(override with explicit --epochs)."
         )
 
+    # Load model params and training hyperparameters from CLI args or defaults
     model_params = get_default_model_params(model_name)
     model_params.update(_json_dict(args.model_params))
 
@@ -541,6 +546,7 @@ def main() -> None:
     if auto_data_parallel and not bool(args.data_parallel):
         logger.info("DataParallel enabled automatically (multiple GPUs selected)")
 
+    # Initialize Discord notifier if enabled
     notifier: DiscordNotifier | None = None
     if bool(args.discord):
         webhook_url = args.discord_webhook_url or os.getenv("DISCORD_WEBHOOK_URL")
@@ -556,6 +562,7 @@ def main() -> None:
                 "--discord enabled but no webhook URL provided; Discord reporting is disabled"
             )
 
+    # Create dataset and dataloaders
     dataset_factory = (
         create_advanced_reconstruction_dataset
         if args.dataset_variant == "advanced"
@@ -611,6 +618,7 @@ def main() -> None:
 
     effective_batch_size = int(args.batch_size)
 
+    # Special overfit mode for debugging model
     if args.overfit:
         overfit_count = min(max(1, int(args.overfit_samples)), len(dataset))
         dataset = Subset(dataset, list(range(overfit_count)))
@@ -650,6 +658,8 @@ def main() -> None:
 
     start_epoch = 1
     best_val_loss = float("inf")
+
+    # Load finetune or resume checkpoint
     if args.finetune_checkpoint:
         load_model_checkpoint(
             checkpoint_path=Path(args.finetune_checkpoint),
@@ -712,6 +722,8 @@ def main() -> None:
     progress = tqdm(
         range(start_epoch, effective_epochs + 1), desc="Training", unit="epoch"
     )
+
+    # Main Training loop
     try:
         for epoch in progress:
             train_loss, train_metrics = _run_epoch(
@@ -810,11 +822,7 @@ def main() -> None:
                         best_loss=best_val_loss,
                         learning_rate=scheduler.get_last_lr()[0],
                         batch_size=effective_batch_size,
-                        elapsed_time=(
-                            f"{int(elapsed // 3600)}h "
-                            f"{int((elapsed % 3600) // 60)}m "
-                            f"{int(elapsed % 60)}s"
-                        ),
+                        elapsed_time=_format_duration(int(elapsed)),
                         estimated_finish_time=time.strftime(
                             "%Y-%m-%d %H:%M:%S",
                             time.localtime(time.time() + eta_seconds),
@@ -866,11 +874,7 @@ def main() -> None:
                 total_epochs=effective_epochs,
                 final_loss=val_losses[-1] if val_losses else float("nan"),
                 best_loss=best_val_loss,
-                training_time=(
-                    f"{total_seconds // 3600}h "
-                    f"{(total_seconds % 3600) // 60}m "
-                    f"{total_seconds % 60}s"
-                ),
+                training_time=_format_duration(total_seconds),
                 final_loss_curve_path=loss_curve_path,
                 best_model_path=best_checkpoint_path,
             )

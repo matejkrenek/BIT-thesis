@@ -1,6 +1,12 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: models.py
+Responsibility: Provides unified model factory and checkpoint save/load helpers across supported point cloud models.
+"""
+
 from __future__ import annotations
 
-import importlib
 import pickle
 import warnings
 from collections.abc import Mapping as MappingABC
