@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -16,16 +17,18 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from core import (
-    ArgSpec,
     ModelConfig,
     available_models,
+    bootstrap,
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
     create_model,
     create_train_val_test_dataloaders,
+    get_default_learning_rate,
+    get_default_model_params,
+    get_default_weight_decay,
     load_model_checkpoint,
     logger,
-    parse_and_bootstrap,
     save_model_checkpoint,
 )
 from notifications import DiscordNotifier
@@ -51,106 +54,6 @@ def _json_dict(raw: str) -> dict[str, Any]:
         raise ValueError("--model-params must be a JSON object")
 
     return parsed
-
-
-def _default_model_params(model_name: str) -> dict[str, Any]:
-    if model_name == "pcn":
-        return {
-            "num_dense": 16384,
-            "latent_dim": 1024,
-            "grid_size": 4,
-        }
-    if model_name == "pointr":
-        return {
-            "trans_dim": 384,
-            "knn_layer": 1,
-            "num_pred": 16384,
-            "num_query": 224,
-        }
-    if model_name == "adapointr":
-        return {
-            "num_query": 512,
-            "num_points": 16384,
-            "center_num": [512, 256],
-            "global_feature_dim": 1024,
-            "encoder_type": "graph",
-            "decoder_type": "fc",
-            "encoder_config": {
-                "embed_dim": 384,
-                "depth": 6,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "combine_style": "concat",
-            },
-            "decoder_config": {
-                "embed_dim": 384,
-                "depth": 8,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "self_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "self_attn_combine_style": "concat",
-                "cross_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "cross_attn_combine_style": "concat",
-            },
-        }
-    raise ValueError(f"Unsupported model '{model_name}'")
-
-
-def _default_learning_rate(model_name: str) -> float:
-    if model_name == "pcn":
-        return 1e-3
-    if model_name == "pointr":
-        return 3e-4
-    if model_name == "adapointr":
-        return 3e-4
-    raise ValueError(f"Unsupported model '{model_name}'")
-
-
-def _default_weight_decay(model_name: str) -> float:
-    if model_name == "pcn":
-        return 0.0
-    if model_name == "pointr":
-        return 1e-4
-    if model_name == "adapointr":
-        return 1e-4
-    raise ValueError(f"Unsupported model '{model_name}'")
-
-
-def _cap_batch_size_for_model(model_name: str, batch_size: int, overfit: bool) -> int:
-    if model_name == "adapointr":
-        # AdaPoinTr decoder-attention is memory heavy on 8GB GPUs.
-        return min(batch_size, 2 if overfit else 4)
-    return batch_size
 
 
 def _extract_cli_value(argv: list[str], option: str) -> str | None:
@@ -348,311 +251,221 @@ def _save_loss_plot(
     plt.close()
 
 
-def _build_schema() -> list[ArgSpec]:
-    return [
-        ArgSpec(
-            flags=("--model",),
-            kwargs={
-                "type": str,
-                "choices": _trainable_models_for_unified_cli(),
-                "required": True,
-                "help": "Model to train.",
-            },
-        ),
-        ArgSpec(
-            flags=("--model-params",),
-            kwargs={
-                "type": str,
-                "default": "{}",
-                "help": "JSON object with model constructor params.",
-            },
-        ),
-        ArgSpec(
-            flags=("--resume-checkpoint",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Path to a checkpoint for resuming training.",
-            },
-        ),
-        ArgSpec(
-            flags=("--output-model",),
-            kwargs={
-                "type": str,
-                "default": "best.pt",
-                "help": "File name for the best model checkpoint.",
-            },
-        ),
-        ArgSpec(
-            flags=("--save-checkpoints",),
-            kwargs={
-                "dest": "save_checkpoints",
-                "action": "store_true",
-                "default": True,
-                "help": "Enable periodic checkpoint saves.",
-            },
-        ),
-        ArgSpec(
-            flags=("--no-save-checkpoints",),
-            kwargs={
-                "dest": "save_checkpoints",
-                "action": "store_false",
-                "help": "Disable periodic checkpoint saves.",
-            },
-        ),
-        ArgSpec(
-            flags=("--save-every",),
-            kwargs={
-                "type": int,
-                "default": 10,
-                "help": "Save periodic checkpoint every N epochs.",
-            },
-        ),
-        ArgSpec(
-            flags=("--overfit",),
-            kwargs={
-                "action": "store_true",
-                "default": False,
-                "help": "Use only a small subset for overfit debugging.",
-            },
-        ),
-        ArgSpec(
-            flags=("--overfit-samples",),
-            kwargs={
-                "type": int,
-                "default": 128,
-                "help": "Number of samples used when --overfit is set.",
-            },
-        ),
-        ArgSpec(
-            flags=("--output-dir",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Root output directory for this run.",
-            },
-        ),
-        ArgSpec(
-            flags=("--run-name",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Name of output run directory. Auto-generated if omitted.",
-            },
-        ),
-        ArgSpec(
-            flags=("--epochs",),
-            kwargs={"type": int, "default": 100},
-        ),
-        ArgSpec(
-            flags=("--batch-size",),
-            kwargs={"type": int, "default": 32},
-        ),
-        ArgSpec(
-            flags=("--learning-rate",),
-            kwargs={"type": float, "default": None},
-        ),
-        ArgSpec(
-            flags=("--weight-decay",),
-            kwargs={"type": float, "default": None},
-        ),
-        ArgSpec(
-            flags=("--lr-step-size",),
-            kwargs={"type": int, "default": 50},
-        ),
-        ArgSpec(
-            flags=("--lr-gamma",),
-            kwargs={"type": float, "default": 0.5},
-        ),
-        ArgSpec(
-            flags=("--grad-clip",),
-            kwargs={"type": float, "default": 1.0},
-        ),
-        ArgSpec(
-            flags=("--train-ratio",),
-            kwargs={"type": float, "default": 0.8},
-        ),
-        ArgSpec(
-            flags=("--val-ratio",),
-            kwargs={"type": float, "default": 0.1},
-        ),
-        ArgSpec(
-            flags=("--num-workers",),
-            kwargs={"type": int, "default": 8},
-        ),
-        ArgSpec(
-            flags=("--dataset-variant",),
-            kwargs={
-                "type": str,
-                "choices": ["basic", "advanced"],
-                "default": "basic",
-                "help": "Defect pipeline variant.",
-            },
-        ),
-        ArgSpec(
-            flags=("--target-dataset",),
-            kwargs={
-                "type": str,
-                "choices": ["shapenet", "modelnet"],
-                "default": "shapenet",
-                "help": "Base dataset used for reconstruction training.",
-            },
-        ),
-        ArgSpec(
-            flags=("--modelnet-root",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Path to ModelNet root (expects raw/ and processed/).",
-            },
-        ),
-        ArgSpec(
-            flags=("--finetune-checkpoint",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Checkpoint used only to initialize model weights for finetuning.",
-            },
-        ),
-        ArgSpec(
-            flags=("--finetune-strict",),
-            kwargs={
-                "dest": "finetune_strict",
-                "action": "store_true",
-                "default": True,
-                "help": "Load finetune checkpoint with strict key matching (default: on).",
-            },
-        ),
-        ArgSpec(
-            flags=("--no-finetune-strict",),
-            kwargs={
-                "dest": "finetune_strict",
-                "action": "store_false",
-                "help": "Allow non-strict key matching when loading finetune checkpoint.",
-            },
-        ),
-        ArgSpec(
-            flags=("--data-parallel",),
-            kwargs={
-                "action": "store_true",
-                "default": False,
-                "help": "Wrap model in DataParallel when multiple GPUs are available.",
-            },
-        ),
-        ArgSpec(
-            flags=("--num-gpus",),
-            kwargs={
-                "type": int,
-                "default": None,
-                "help": "Number of GPUs to use from index 0 (sets CUDA_VISIBLE_DEVICES).",
-            },
-        ),
-        ArgSpec(
-            flags=("--gpu-ids",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Comma-separated physical GPU ids (sets CUDA_VISIBLE_DEVICES).",
-            },
-        ),
-        ArgSpec(
-            flags=("--seed",),
-            kwargs={"type": int, "default": 42},
-        ),
-        ArgSpec(
-            flags=("--cache-dir",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Directory for defect cache NPZ files. Auto-resolved if omitted.",
-            },
-        ),
-        ArgSpec(
-            flags=("--cache-read",),
-            kwargs={
-                "dest": "cache_read",
-                "action": "store_true",
-                "default": True,
-                "help": "Read defect samples from cache if available (default: on).",
-            },
-        ),
-        ArgSpec(
-            flags=("--no-cache-read",),
-            kwargs={
-                "dest": "cache_read",
-                "action": "store_false",
-                "help": "Disable reading from defect cache.",
-            },
-        ),
-        ArgSpec(
-            flags=("--cache-write",),
-            kwargs={
-                "dest": "cache_write",
-                "action": "store_true",
-                "default": True,
-                "help": "Write generated defect samples to cache (default: on).",
-            },
-        ),
-        ArgSpec(
-            flags=("--no-cache-write",),
-            kwargs={
-                "dest": "cache_write",
-                "action": "store_false",
-                "help": "Disable writing to defect cache.",
-            },
-        ),
-        ArgSpec(
-            flags=("--discord",),
-            kwargs={
-                "action": "store_true",
-                "default": False,
-                "help": "Enable Discord training notifications.",
-            },
-        ),
-        ArgSpec(
-            flags=("--discord-webhook-url",),
-            kwargs={
-                "type": str,
-                "default": None,
-                "help": "Discord webhook URL. If omitted, DISCORD_WEBHOOK_URL env var is used.",
-            },
-        ),
-        ArgSpec(
-            flags=("--discord-project-name",),
-            kwargs={
-                "type": str,
-                "default": "BIT Thesis Project",
-                "help": "Project name displayed in Discord notifications.",
-            },
-        ),
-        ArgSpec(
-            flags=("--discord-avatar-name",),
-            kwargs={
-                "type": str,
-                "default": "Training Bot",
-                "help": "Avatar/author name shown in Discord notifications.",
-            },
-        ),
-        ArgSpec(
-            flags=("--discord-progress-every",),
-            kwargs={
-                "type": int,
-                "default": 1,
-                "help": "Send Discord progress update every N epochs.",
-            },
-        ),
-    ]
+def build_parser() -> argparse.ArgumentParser:
+    """Build command-line parser for unified reconstruction training."""
+    parser = argparse.ArgumentParser(
+        description="Unified trainer for reconstruction models."
+    )
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=_trainable_models_for_unified_cli(),
+        required=True,
+        help="Model to train.",
+    )
+    parser.add_argument(
+        "--model-params",
+        type=str,
+        default="{}",
+        help="JSON object with model constructor params.",
+    )
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=str,
+        default=None,
+        help="Path to a checkpoint for resuming training.",
+    )
+    parser.add_argument(
+        "--output-model",
+        type=str,
+        default="best.pt",
+        help="File name for the best model checkpoint.",
+    )
+    parser.add_argument(
+        "--save-checkpoints",
+        dest="save_checkpoints",
+        action="store_true",
+        default=True,
+        help="Enable periodic checkpoint saves.",
+    )
+    parser.add_argument(
+        "--no-save-checkpoints",
+        dest="save_checkpoints",
+        action="store_false",
+        help="Disable periodic checkpoint saves.",
+    )
+    parser.add_argument(
+        "--save-every",
+        type=int,
+        default=10,
+        help="Save periodic checkpoint every N epochs.",
+    )
+    parser.add_argument(
+        "--overfit",
+        action="store_true",
+        default=False,
+        help="Use only a small subset for overfit debugging.",
+    )
+    parser.add_argument(
+        "--overfit-samples",
+        type=int,
+        default=128,
+        help="Number of samples used when --overfit is set.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Root output directory for this run.",
+    )
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="Name of output run directory. Auto-generated if omitted.",
+    )
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--weight-decay", type=float, default=None)
+    parser.add_argument("--lr-step-size", type=int, default=50)
+    parser.add_argument("--lr-gamma", type=float, default=0.5)
+    parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--train-ratio", type=float, default=0.8)
+    parser.add_argument("--val-ratio", type=float, default=0.1)
+    parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument(
+        "--dataset-variant",
+        type=str,
+        choices=["basic", "advanced"],
+        default="basic",
+        help="Defect pipeline variant.",
+    )
+    parser.add_argument(
+        "--target-dataset",
+        type=str,
+        choices=["shapenet", "modelnet"],
+        default="shapenet",
+        help="Base dataset used for reconstruction training.",
+    )
+    parser.add_argument(
+        "--modelnet-root",
+        type=str,
+        default=None,
+        help="Path to ModelNet root (expects raw/ and processed/).",
+    )
+    parser.add_argument(
+        "--finetune-checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint used only to initialize model weights for finetuning.",
+    )
+    parser.add_argument(
+        "--finetune-strict",
+        dest="finetune_strict",
+        action="store_true",
+        default=True,
+        help="Load finetune checkpoint with strict key matching (default: on).",
+    )
+    parser.add_argument(
+        "--no-finetune-strict",
+        dest="finetune_strict",
+        action="store_false",
+        help="Allow non-strict key matching when loading finetune checkpoint.",
+    )
+    parser.add_argument(
+        "--data-parallel",
+        action="store_true",
+        default=False,
+        help="Wrap model in DataParallel when multiple GPUs are available.",
+    )
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        default=None,
+        help="Number of GPUs to use from index 0 (sets CUDA_VISIBLE_DEVICES).",
+    )
+    parser.add_argument(
+        "--gpu-ids",
+        type=str,
+        default=None,
+        help="Comma-separated physical GPU ids (sets CUDA_VISIBLE_DEVICES).",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--cache-dir",
+        type=str,
+        default=None,
+        help="Directory for defect cache NPZ files. Auto-resolved if omitted.",
+    )
+    parser.add_argument(
+        "--cache-read",
+        dest="cache_read",
+        action="store_true",
+        default=True,
+        help="Read defect samples from cache if available (default: on).",
+    )
+    parser.add_argument(
+        "--no-cache-read",
+        dest="cache_read",
+        action="store_false",
+        help="Disable reading from defect cache.",
+    )
+    parser.add_argument(
+        "--cache-write",
+        dest="cache_write",
+        action="store_true",
+        default=True,
+        help="Write generated defect samples to cache (default: on).",
+    )
+    parser.add_argument(
+        "--no-cache-write",
+        dest="cache_write",
+        action="store_false",
+        help="Disable writing to defect cache.",
+    )
+    parser.add_argument(
+        "--discord",
+        action="store_true",
+        default=False,
+        help="Enable Discord training notifications.",
+    )
+    parser.add_argument(
+        "--discord-webhook-url",
+        type=str,
+        default=None,
+        help="Discord webhook URL. If omitted, DISCORD_WEBHOOK_URL env var is used.",
+    )
+    parser.add_argument(
+        "--discord-project-name",
+        type=str,
+        default="BIT Thesis Project",
+        help="Project name displayed in Discord notifications.",
+    )
+    parser.add_argument(
+        "--discord-avatar-name",
+        type=str,
+        default="Training Bot",
+        help="Avatar/author name shown in Discord notifications.",
+    )
+    parser.add_argument(
+        "--discord-progress-every",
+        type=int,
+        default=1,
+        help="Send Discord progress update every N epochs.",
+    )
+
+    return parser
 
 
 def main() -> None:
     preselected_gpu_ids = _preconfigure_cuda_visible_devices(sys.argv[1:])
     epochs_cli_provided = _extract_cli_value(sys.argv[1:], "--epochs") is not None
 
-    args, cfg = parse_and_bootstrap(
-        schema=_build_schema(),
-        data_subdir=None,
-        description="Unified trainer for reconstruction models.",
-    )
+    parser = build_parser()
+    args = parser.parse_args()
+    cfg = bootstrap(seed=int(args.seed), data_subdir=None)
 
     if args.num_gpus is not None and args.num_gpus <= 0:
         raise ValueError("--num-gpus must be > 0")
@@ -686,18 +499,18 @@ def main() -> None:
             "(override with explicit --epochs)."
         )
 
-    model_params = _default_model_params(model_name)
+    model_params = get_default_model_params(model_name)
     model_params.update(_json_dict(args.model_params))
 
     learning_rate = (
         float(args.learning_rate)
         if args.learning_rate is not None
-        else _default_learning_rate(model_name)
+        else get_default_learning_rate(model_name)
     )
     weight_decay = (
         float(args.weight_decay)
         if args.weight_decay is not None
-        else _default_weight_decay(model_name)
+        else get_default_weight_decay(model_name)
     )
 
     output_root = (

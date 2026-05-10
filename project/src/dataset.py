@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: dataset.py
+Responsibility: CLI utility for creating and visualizing reconstruction dataset galleries.
+"""
+
 import argparse
 import json
 import os
@@ -5,8 +12,16 @@ from datetime import datetime
 from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
-from dotenv import load_dotenv
 
+from core.bootstrap import bootstrap
+from core.cli_parsing import (
+    parse_csv as _parse_csv,
+    parse_indices as _parse_indices,
+    parse_labels as _parse_labels,
+    parse_output_formats as _parse_output_formats,
+    parse_views as _parse_views,
+    parse_xyz_degrees as _parse_xyz_degrees,
+)
 from core.datasets import (
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
@@ -18,69 +33,6 @@ from visualize.dataset_gallery import (
     _to_numpy_points,
     save_dataset_gallery,
 )
-
-
-def _parse_csv(value: str) -> List[str]:
-    return [v.strip() for v in value.split(",") if v.strip()]
-
-
-def _parse_views(value: str) -> List[Tuple[float, float]]:
-    views = []
-    for pair in value.split(";"):
-        pair = pair.strip()
-        if not pair:
-            continue
-        elev_s, azim_s = pair.split(",")
-        views.append((float(elev_s), float(azim_s)))
-    if not views:
-        raise ValueError("At least one view must be provided")
-    return views
-
-
-def _parse_xyz_degrees(value: str) -> Tuple[float, float, float]:
-    parts = [p.strip() for p in value.split(",") if p.strip()]
-    if len(parts) != 3:
-        raise ValueError(
-            "Expected three comma-separated values for XYZ rotation, e.g. 0,0,90"
-        )
-    return float(parts[0]), float(parts[1]), float(parts[2])
-
-
-def _parse_indices(value: str) -> List[int]:
-    parts = [p.strip() for p in value.split(",") if p.strip()]
-    if not parts:
-        raise ValueError("--sample-indices was provided but no indices were parsed")
-
-    indices = []
-    for part in parts:
-        indices.append(int(part))
-    return indices
-
-
-def _parse_labels(value: str) -> List[str]:
-    labels = [p.strip() for p in value.split(",") if p.strip()]
-    if not labels:
-        raise ValueError("--cloud-labels was provided but no labels were parsed")
-    return labels
-
-
-def _parse_output_formats(value: str) -> List[str]:
-    supported = {"png", "svg", "pdf"}
-    raw = [v.strip().lower().lstrip(".") for v in value.split(",") if v.strip()]
-    if not raw:
-        raise ValueError("--export-formats must contain at least one format")
-
-    invalid = [fmt for fmt in raw if fmt not in supported]
-    if invalid:
-        raise ValueError(f"Unsupported format(s) {invalid}. Choose from: png, svg, pdf")
-
-    unique = []
-    seen = set()
-    for fmt in raw:
-        if fmt not in seen:
-            seen.add(fmt)
-            unique.append(fmt)
-    return unique
 
 
 def _build_base_dataset(args, dataset_name: str):
@@ -398,9 +350,8 @@ def _choose_indices(dataset_len: int, args: argparse.Namespace) -> List[int]:
     return sorted(rng.choice(dataset_len, size=k, replace=False).tolist())
 
 
-def main():
-    load_dotenv()
-
+def build_parser() -> argparse.ArgumentParser:
+    """Build command-line argument parser for dataset gallery generation."""
     parser = argparse.ArgumentParser(
         description="Visualize reconstruction datasets with basic/advanced corruption modes.",
     )
@@ -604,13 +555,20 @@ def main():
         help="Include defect log details in caption text.",
     )
 
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+
     args = parser.parse_args()
 
-    ROOT_DIR = os.getenv("ROOT_DIR", "")
-    args.data_root = args.data_root or os.path.join(ROOT_DIR, "data")
+    cfg = bootstrap(seed=int(args.seed), data_subdir=None)
+    args.data_root = args.data_root or str(cfg.data_dir)
     args.dense_root = args.dense_root or os.path.join(
         args.data_root, "ShapeNetV2_dense"
     )
+    args.output_dir = args.output_dir or str(cfg.output_dir / "dataset")
 
     if not args.open_viewer and not args.generate_images:
         raise ValueError(

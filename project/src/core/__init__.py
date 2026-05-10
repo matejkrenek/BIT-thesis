@@ -1,10 +1,3 @@
-from .args import (
-    ArgSpec,
-    bootstrap_from_args,
-    build_parser,
-    parse_and_bootstrap,
-    parse_args,
-)
 from .bootstrap import BootstrapConfig, bootstrap
 from .datasets import (
     create_advanced_reconstruction_dataset,
@@ -27,13 +20,14 @@ from .models import (
     load_model_checkpoint,
     save_model_checkpoint,
 )
+from .model_defaults import (
+    get_default_learning_rate,
+    get_default_model_params,
+    get_default_optimizer_hparams,
+    get_default_weight_decay,
+)
 
 __all__ = [
-    "ArgSpec",
-    "build_parser",
-    "parse_args",
-    "bootstrap_from_args",
-    "parse_and_bootstrap",
     "BootstrapConfig",
     "bootstrap",
     "create_basic_reconstruction_dataset",
@@ -51,4 +45,8 @@ __all__ = [
     "save_model_checkpoint",
     "load_model_checkpoint",
     "create_and_load_model",
+    "get_default_model_params",
+    "get_default_optimizer_hparams",
+    "get_default_learning_rate",
+    "get_default_weight_decay",
 ]

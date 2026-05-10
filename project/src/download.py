@@ -50,6 +50,7 @@ def _split_bucket_source(source: str) -> tuple[str, str]:
 
 
 def _to_repo_relative(remote_path: str, bucket_id: str) -> str:
+    # Hugging Face file listings can return different path prefixes depending on API path form.
     for candidate in (
         f"hf://buckets/{bucket_id}/",
         f"buckets/{bucket_id}/",
@@ -141,8 +142,10 @@ def main() -> int:
     print(f"[download.py] Downloading '{args.source}' to '{output_dir}'...")
 
     try:
+        # Prefer Python API for fine-grained filtering and per-file target paths.
         from huggingface_hub import HfFileSystem, download_bucket_files
     except ImportError:
+        # Keep CLI fallback so script still works when huggingface_hub extras are missing.
         return _download_via_cli(args.source, output_dir, token)
 
     bucket_id, bucket_path = _split_bucket_source(args.source)
@@ -153,11 +156,13 @@ def main() -> int:
 
     fs = HfFileSystem(token=token)
     if fs.isfile(hf_source):
+        # Single-file source: keep relative output rooted at the file parent folder.
         repo_paths = [_to_repo_relative(hf_source, bucket_id)]
         base_prefix = str(Path(repo_paths[0]).parent).replace("\\", "/")
     else:
         if not fs.exists(hf_source):
             raise FileNotFoundError(f"Source path does not exist: {args.source}")
+        # Directory source: enumerate recursively and keep only regular files.
         found = fs.find(hf_source, maxdepth=None)
         repo_paths = [
             _to_repo_relative(remote_path, bucket_id)
@@ -173,6 +178,7 @@ def main() -> int:
     skipped = 0
 
     for repo_path in repo_paths:
+        # Preserve source sub-tree layout under output_dir.
         rel_path = os.path.relpath(repo_path, base_prefix or ".").replace("\\", "/")
 
         if allow_patterns and not _matches_any(rel_path, allow_patterns):
@@ -183,6 +189,7 @@ def main() -> int:
         local_file = output_dir / rel_path
         local_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # Default behavior is incremental download; force flag allows overwrite.
         if local_file.exists() and not args.force_download:
             skipped += 1
             continue

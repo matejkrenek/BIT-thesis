@@ -12,96 +12,24 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from core.bootstrap import bootstrap
+from core.model_defaults import get_default_model_params
 from core.models import create_model, load_model_checkpoint
 from dataset.wrapper import PointcloudPatchDataset
 from models.adapointr.utils import fps as adapointr_fps
 
-# Static model presets; CLI can still override checkpoints.
+# Static pipeline presets; model constructor params are sourced from core.model_defaults.
 MODEL_PRESETS: dict[str, dict[str, Any]] = {
     "denoise": {
         "model_name": "pointcleannet",
-        "model_params": {
-            "num_points": 500,
-            "num_scales": 1,
-            "output_dim": 3,
-            "use_point_stn": True,
-            "use_feat_stn": True,
-            "sym_op": "max",
-            "point_tuple": 1,
-        },
         "checkpoint": "outputs/pointcleannet/PointCleanNet_model.pth",
         "params_checkpoint": "outputs/pointcleannet/PointCleanNet_params.pth",
     },
     "outlier": {
         "model_name": "pointcleannet_outliers",
-        "model_params": {
-            "num_points": 500,
-            "num_scales": 1,
-            "output_dim": 1,
-            "use_point_stn": True,
-            "use_feat_stn": True,
-            "sym_op": "max",
-            "point_tuple": 1,
-        },
         "checkpoint": "outputs/pointcleannet/PointCleanNetOutliers_model.pth",
     },
     "completion_adapointr": {
         "model_name": "adapointr",
-        "model_params": {
-            "num_query": 512,
-            "num_points": 16384,
-            "center_num": [512, 256],
-            "global_feature_dim": 1024,
-            "encoder_type": "graph",
-            "decoder_type": "fc",
-            "encoder_config": {
-                "embed_dim": 384,
-                "depth": 6,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "combine_style": "concat",
-            },
-            "decoder_config": {
-                "embed_dim": 384,
-                "depth": 8,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "self_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "self_attn_combine_style": "concat",
-                "cross_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "cross_attn_combine_style": "concat",
-            },
-        },
         "checkpoint": "outputs/adapointr/checkpoints/best.pt",
     },
 }
@@ -660,6 +588,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
     print(f"[input] loaded point cloud: {int(input_cloud.shape[0])} points")
 
     denoise_cfg = MODEL_PRESETS["denoise"]
+    denoise_default_params = get_default_model_params(denoise_cfg["model_name"])
     params_path = Path(options.denoise_params_checkpoint).expanduser().resolve()
     trainopt = None
     if params_path.exists():
@@ -668,9 +597,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
     points_per_patch = int(options.points_per_patch)
     if points_per_patch <= 0:
         points_per_patch = int(
-            getattr(
-                trainopt, "points_per_patch", denoise_cfg["model_params"]["num_points"]
-            )
+            getattr(trainopt, "points_per_patch", denoise_default_params["num_points"])
         )
 
     patch_radius = float(options.patch_radius)
@@ -693,7 +620,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
         if not denoise_ckpt.exists():
             raise FileNotFoundError(f"Missing denoise checkpoint: {denoise_ckpt}")
 
-        denoise_model_params = dict(denoise_cfg["model_params"])
+        denoise_model_params = get_default_model_params(denoise_cfg["model_name"])
         denoise_model_params.update(
             {
                 "num_points": int(points_per_patch),
@@ -725,7 +652,8 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
                 "Outlier stage requires a valid outlier checkpoint."
             )
 
-        outlier_params = dict(MODEL_PRESETS["outlier"]["model_params"])
+        outlier_preset = MODEL_PRESETS["outlier"]
+        outlier_params = get_default_model_params(outlier_preset["model_name"])
         outlier_params.update(
             {
                 "num_points": int(points_per_patch),
@@ -738,7 +666,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
 
         def _build_outlier_model():
             model = create_model(
-                MODEL_PRESETS["outlier"]["model_name"],
+                outlier_preset["model_name"],
                 outlier_params,
                 device=device,
             )
@@ -875,7 +803,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
         def _build_completion_model():
             model = create_model(
                 completion_cfg["model_name"],
-                completion_cfg["model_params"],
+                get_default_model_params(completion_cfg["model_name"]),
                 device=device,
             )
             load_model_checkpoint(

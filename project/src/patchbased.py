@@ -17,35 +17,18 @@ from core import (
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
     create_model,
+    get_default_model_params,
     load_model_checkpoint,
+)
+from core.cli_parsing import (
+    parse_csv as _parse_csv,
+    parse_output_formats as _parse_output_formats,
+    parse_views as _parse_views,
+    parse_xyz_degrees as _parse_xyz_degrees,
 )
 from dataset import ModelNetDataset, ShapeNetDataset
 from dataset.wrapper import NormalizeWrapperDataset, PatchWrapperDataset
 from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
-
-
-def _parse_csv(value: str) -> List[str]:
-    return [v.strip() for v in value.split(",") if v.strip()]
-
-
-def _parse_views(value: str) -> List[Tuple[float, float]]:
-    views: List[Tuple[float, float]] = []
-    for pair in value.split(";"):
-        pair = pair.strip()
-        if not pair:
-            continue
-        elev_s, azim_s = pair.split(",")
-        views.append((float(elev_s), float(azim_s)))
-    if not views:
-        raise ValueError("At least one view must be provided")
-    return views
-
-
-def _parse_xyz_degrees(value: str) -> Tuple[float, float, float]:
-    parts = [p.strip() for p in value.split(",") if p.strip()]
-    if len(parts) != 3:
-        raise ValueError("Expected three comma-separated values for XYZ rotation")
-    return float(parts[0]), float(parts[1]), float(parts[2])
 
 
 def _parse_model_spec(value: str) -> Tuple[str, str, Path]:
@@ -62,25 +45,6 @@ def _parse_model_spec(value: str) -> Tuple[str, str, Path]:
     if not checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
     return name, model_type, checkpoint
-
-
-def _parse_output_formats(value: str) -> List[str]:
-    supported = {"png", "svg", "pdf"}
-    raw = [v.strip().lower().lstrip(".") for v in value.split(",") if v.strip()]
-    if not raw:
-        raise ValueError("--export-formats must contain at least one format")
-
-    invalid = [fmt for fmt in raw if fmt not in supported]
-    if invalid:
-        raise ValueError(f"Unsupported format(s) {invalid}. Choose from: png, svg, pdf")
-
-    unique: List[str] = []
-    seen = set()
-    for fmt in raw:
-        if fmt not in seen:
-            seen.add(fmt)
-            unique.append(fmt)
-    return unique
 
 
 def _resolve_run_dir(args: argparse.Namespace) -> Tuple[Path, str]:
@@ -177,75 +141,6 @@ def _extract_sample_category(sample: Any) -> str:
 def _build_category_caption(category: str) -> str:
     category = str(category).strip()
     return f"category: {category}" if category else ""
-
-
-def _default_model_params(model_type: str) -> Dict[str, Any]:
-    if model_type == "pcn":
-        return {"num_dense": 16384, "latent_dim": 1024, "grid_size": 4}
-    if model_type == "pointr":
-        return {
-            "trans_dim": 384,
-            "knn_layer": 1,
-            "num_pred": 16384,
-            "num_query": 224,
-        }
-    if model_type == "adapointr":
-        return {
-            "num_query": 512,
-            "num_points": 16384,
-            "center_num": [512, 256],
-            "global_feature_dim": 1024,
-            "encoder_type": "graph",
-            "decoder_type": "fc",
-            "encoder_config": {
-                "embed_dim": 384,
-                "depth": 6,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "combine_style": "concat",
-            },
-            "decoder_config": {
-                "embed_dim": 384,
-                "depth": 8,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "self_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "self_attn_combine_style": "concat",
-                "cross_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "cross_attn_combine_style": "concat",
-            },
-        }
-    raise ValueError(f"Unsupported model type: {model_type}")
 
 
 def _build_base_dataset(args: argparse.Namespace):
@@ -668,7 +563,7 @@ def main() -> None:
 
         model_name, model_type, checkpoint = _parse_model_spec(args.model_spec)
         completion_model = create_model(
-            ModelConfig(name=model_type, params=_default_model_params(model_type)),
+            ModelConfig(name=model_type, params=get_default_model_params(model_type)),
             device=device,
         )
         load_model_checkpoint(

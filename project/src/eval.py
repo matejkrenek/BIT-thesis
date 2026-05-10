@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import time
 from dataclasses import dataclass
@@ -15,15 +16,15 @@ from torch.utils.data.dataset import Subset
 from tqdm import tqdm
 
 from core import (
-    ArgSpec,
     ModelConfig,
+    bootstrap,
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
     create_model,
     create_train_val_test_dataloaders,
+    get_default_model_params,
     load_model_checkpoint,
     logger,
-    parse_and_bootstrap,
 )
 from core.inference_pipeline import (
     MODEL_PRESETS,
@@ -32,6 +33,12 @@ from core.inference_pipeline import (
     _load_checkpoint_flexible,
     _predict_denoised_centers,
     _safe_first_patch_radius,
+)
+from core.cli_parsing import (
+    parse_indices as _parse_indices,
+    parse_optional_csv as _parse_csv,
+    parse_views as _parse_views,
+    parse_xyz_degrees as _parse_xyz_degrees,
 )
 from dataset import ModelNetDataset, ShapeNetDataset
 from metrics import (
@@ -86,42 +93,6 @@ def _compute_metric_values_single(
         density_alpha=density_alpha,
     )
     return {k: float(v[0].item()) for k, v in values.items()}
-
-
-def _parse_csv(value: Optional[str]) -> Optional[List[str]]:
-    if not value:
-        return None
-    out = [v.strip() for v in value.split(",") if v.strip()]
-    return out or None
-
-
-def _parse_indices(value: str) -> List[int]:
-    parts = [p.strip() for p in value.split(",") if p.strip()]
-    if not parts:
-        raise ValueError("--sample-indices was provided but no indices were parsed")
-    return [int(p) for p in parts]
-
-
-def _parse_views(value: str) -> List[Tuple[float, float]]:
-    views = []
-    for pair in value.split(";"):
-        pair = pair.strip()
-        if not pair:
-            continue
-        elev_s, azim_s = pair.split(",")
-        views.append((float(elev_s), float(azim_s)))
-    if not views:
-        raise ValueError("At least one view must be provided")
-    return views
-
-
-def _parse_xyz_degrees(value: str) -> Tuple[float, float, float]:
-    parts = [p.strip() for p in value.split(",") if p.strip()]
-    if len(parts) != 3:
-        raise ValueError(
-            "Expected three comma-separated values for XYZ rotation, e.g. 0,0,90"
-        )
-    return float(parts[0]), float(parts[1]), float(parts[2])
 
 
 def _parse_metrics(value: str) -> List[str]:
@@ -187,79 +158,6 @@ def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
     return specs
 
 
-def _default_model_params(model_type: str) -> Dict[str, Any]:
-    if model_type == "pcn":
-        return {
-            "num_dense": 16384,
-            "latent_dim": 1024,
-            "grid_size": 4,
-        }
-    if model_type == "pointr":
-        return {
-            "trans_dim": 384,
-            "knn_layer": 1,
-            "num_pred": 16384,
-            "num_query": 224,
-        }
-    if model_type == "adapointr":
-        return {
-            "num_query": 512,
-            "num_points": 16384,
-            "center_num": [512, 256],
-            "global_feature_dim": 1024,
-            "encoder_type": "graph",
-            "decoder_type": "fc",
-            "encoder_config": {
-                "embed_dim": 384,
-                "depth": 6,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "combine_style": "concat",
-            },
-            "decoder_config": {
-                "embed_dim": 384,
-                "depth": 8,
-                "num_heads": 6,
-                "k": 8,
-                "n_group": 2,
-                "mlp_ratio": 2.0,
-                "self_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "self_attn_combine_style": "concat",
-                "cross_attn_block_style_list": [
-                    "attn-graph",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                    "attn",
-                ],
-                "cross_attn_combine_style": "concat",
-            },
-        }
-    raise ValueError(f"Unsupported model type: {model_type}")
-
-
 def _legacy_load_state_dict(
     model: torch.nn.Module,
     checkpoint_path: Path,
@@ -298,7 +196,7 @@ def _legacy_load_state_dict(
 def _build_model(spec: EvalModelSpec, device: torch.device) -> torch.nn.Module:
     model = create_model(
         ModelConfig(
-            name=spec.model_type, params=_default_model_params(spec.model_type)
+            name=spec.model_type, params=get_default_model_params(spec.model_type)
         ),
         device=device,
     )
@@ -747,12 +645,13 @@ def _build_pipeline_runtime(args, cfg) -> Optional[PipelineRuntime]:
         )
 
     points_per_patch = int(args.pipeline_points_per_patch)
+    denoise_default_params = get_default_model_params("pointcleannet")
     if points_per_patch <= 0:
         points_per_patch = int(
             getattr(
                 denoise_trainopt,
                 "points_per_patch",
-                MODEL_PRESETS["denoise"]["model_params"]["num_points"],
+                denoise_default_params["num_points"],
             )
         )
 
@@ -778,7 +677,7 @@ def _build_pipeline_runtime(args, cfg) -> Optional[PipelineRuntime]:
         if not denoise_ckpt.exists():
             raise FileNotFoundError(f"Missing denoise checkpoint: {denoise_ckpt}")
 
-        denoise_params = dict(MODEL_PRESETS["denoise"]["model_params"])
+        denoise_params = get_default_model_params("pointcleannet")
         denoise_params.update(
             {
                 "num_points": int(points_per_patch),
@@ -804,7 +703,7 @@ def _build_pipeline_runtime(args, cfg) -> Optional[PipelineRuntime]:
         if not outlier_ckpt.exists():
             raise FileNotFoundError(f"Missing outlier checkpoint: {outlier_ckpt}")
 
-        outlier_params = dict(MODEL_PRESETS["outlier"]["model_params"])
+        outlier_params = get_default_model_params("pointcleannet_outliers")
         outlier_params.update(
             {
                 "num_points": int(points_per_patch),
@@ -965,195 +864,168 @@ def _resolve_run_dir(args, default_output_root: Path) -> Path:
     return run_dir.resolve()
 
 
-def _build_arg_schema() -> List[ArgSpec]:
-    return [
-        ArgSpec(
-            ("--dataset",), {"required": True, "choices": ["shapenet", "modelnet"]}
-        ),
-        ArgSpec(
-            ("--mode",),
-            {
-                "type": str,
-                "default": "basic",
-                "choices": ["basic", "advanced"],
-                "help": "Choose corruption pipeline used by core dataset builders.",
-            },
-        ),
-        ArgSpec(("--data-root",), {"type": str, "default": None}),
-        ArgSpec(
-            ("--categories",),
-            {"type": str, "default": None, "help": "Comma-separated categories"},
-        ),
-        ArgSpec(
-            ("--model-spec", "--modelspec"),
-            {
-                "action": "append",
-                "dest": "model_specs",
-                "default": [],
-                "help": "Format: name:model_type:/abs/or/rel/checkpoint.pt (repeatable)",
-            },
-        ),
-        ArgSpec(("--metrics",), {"type": str, "default": "chamfer,hausdorff,dcd"}),
-        ArgSpec(
-            ("--scenario",),
-            {
-                "type": str,
-                "default": "a",
-                "choices": ["a", "b", "c", "all"],
-                "help": "Evaluation scenario: a=completion on dataset input, b=pipeline stages, c=completion on pipeline output, all=run all scenarios.",
-            },
-        ),
-        ArgSpec(("--density-alpha",), {"type": float, "default": 1000.0}),
-        ArgSpec(("--segment-threshold",), {"type": float, "default": 0.02}),
-        ArgSpec(("--batch-size",), {"type": int, "default": 32}),
-        ArgSpec(("--num-workers",), {"type": int, "default": 4}),
-        ArgSpec(("--num-samples",), {"type": int, "default": 6}),
-        ArgSpec(("--sample-indices",), {"type": str, "default": None}),
-        ArgSpec(("--seed",), {"type": int, "default": 42}),
-        ArgSpec(
-            ("--train-ratio",),
-            {
-                "type": float,
-                "default": 0.8,
-                "help": "Train split ratio. Test ratio is computed implicitly as 1 - train_ratio - val_ratio.",
-            },
-        ),
-        ArgSpec(
-            ("--val-ratio",),
-            {
-                "type": float,
-                "default": 0.1,
-                "help": "Validation split ratio. Test ratio is computed implicitly as 1 - train_ratio - val_ratio.",
-            },
-        ),
-        ArgSpec(
-            ("--test-samples",),
-            {
-                "type": int,
-                "default": None,
-                "help": "Optional number of samples to process from test split. Omit to process all test samples.",
-            },
-        ),
-        ArgSpec(
-            ("--output-dir",),
-            {
-                "type": str,
-                "default": "eval",
-                "help": "Output directory for evaluation runs. Relative paths are under OUTPUT_DIR.",
-            },
-        ),
-        ArgSpec(
-            ("--run-name",),
-            {
-                "type": str,
-                "default": None,
-                "help": "Run subdirectory name inside output-dir (auto-generated when omitted).",
-            },
-        ),
-        ArgSpec(
-            ("--gallery-name",), {"type": str, "default": "evaluation_gallery.png"}
-        ),
-        ArgSpec(
-            ("--metrics-csv-name",),
-            {"type": str, "default": "evaluation_per_sample.csv"},
-        ),
-        ArgSpec(
-            ("--summary-csv-name",), {"type": str, "default": "evaluation_summary.csv"}
-        ),
-        ArgSpec(
-            ("--segmented-gallery-name",),
-            {"type": str, "default": "evaluation_segmented_gallery.png"},
-        ),
-        ArgSpec(
-            ("--segmented-metrics-csv-name",),
-            {"type": str, "default": "evaluation_segmented_per_sample.csv"},
-        ),
-        ArgSpec(
-            ("--segmented-summary-csv-name",),
-            {"type": str, "default": "evaluation_segmented_summary.csv"},
-        ),
-        ArgSpec(("--views",), {"type": str, "default": "0,0;0,90"}),
-        ArgSpec(("--point-size",), {"type": float, "default": 4.5}),
-        ArgSpec(("--max-points",), {"type": int, "default": 8192}),
-        ArgSpec(("--zoom",), {"type": float, "default": 1.0}),
-        ArgSpec(
-            ("--point-rotation",),
-            {
-                "type": str,
-                "default": "90,0,0",
-                "help": "Object-space XYZ rotation in degrees applied before rendering (e.g. 0,0,90).",
-            },
-        ),
-        ArgSpec(("--dpi",), {"type": int, "default": 300}),
-        ArgSpec(("--min-figure-width",), {"type": float, "default": 0}),
-        ArgSpec(("--min-figure-height",), {"type": float, "default": 0}),
-        ArgSpec(("--badge-fontsize",), {"type": float, "default": 16.0}),
-        ArgSpec(
-            ("--metrics-fontsize",),
-            {
-                "type": float,
-                "default": 8.0,
-                "help": "Font size for per-cloud metric detail text shown under badge labels.",
-            },
-        ),
-        ArgSpec(("--caption-fontsize",), {"type": float, "default": 14.0}),
-        ArgSpec(("--side-note-fontsize",), {"type": float, "default": 14.0}),
-        ArgSpec(("--border-linewidth",), {"type": float, "default": 0.2}),
-        ArgSpec(("--block-view-width",), {"type": float, "default": 3.0}),
-        ArgSpec(("--block-row-height",), {"type": float, "default": 3.0}),
-        ArgSpec(("--page-padding",), {"type": float, "default": 0}),
-        ArgSpec(("--max-sample-cols",), {"type": int, "default": 3}),
-        ArgSpec(("--defect-augmentation-count",), {"type": int, "default": 5}),
-        ArgSpec(("--local-dropout-regions",), {"type": int, "default": 5}),
-        ArgSpec(("--dense",), {"action": "store_true"}),
-        ArgSpec(("--dense-root",), {"type": str, "default": None}),
-        ArgSpec(("--dense-num-points",), {"type": int, "default": 100000}),
-        ArgSpec(("--normalize",), {"action": "store_true", "default": True}),
-        ArgSpec(("--no-normalize",), {"dest": "normalize", "action": "store_false"}),
-        ArgSpec(("--run-denoise",), {"action": "store_true", "default": False}),
-        ArgSpec(("--run-outlier-before",), {"action": "store_true", "default": False}),
-        ArgSpec(("--run-outlier-after",), {"action": "store_true", "default": False}),
-        ArgSpec(
-            ("--denoise-model-checkpoint",),
-            {
-                "type": str,
-                "default": "",
-                "help": "Checkpoint path for pointcleannet denoising model.",
-            },
-        ),
-        ArgSpec(
-            ("--denoise-params-checkpoint",),
-            {
-                "type": str,
-                "default": str(MODEL_PRESETS["denoise"]["params_checkpoint"]),
-                "help": "Optional params checkpoint for denoise defaults.",
-            },
-        ),
-        ArgSpec(
-            ("--outlier-model-checkpoint",),
-            {
-                "type": str,
-                "default": "",
-                "help": "Checkpoint path for pointcleannet_outliers model.",
-            },
-        ),
-        ArgSpec(("--pipeline-points-per-patch",), {"type": int, "default": 0}),
-        ArgSpec(("--pipeline-patch-radius",), {"type": float, "default": 0.0}),
-        ArgSpec(("--pipeline-batch-size",), {"type": int, "default": 128}),
-        ArgSpec(("--pipeline-workers",), {"type": int, "default": 1}),
-        ArgSpec(("--pipeline-cache-capacity",), {"type": int, "default": 100}),
-        ArgSpec(("--pipeline-n-neighbours",), {"type": int, "default": 100}),
-        ArgSpec(("--pipeline-outlier-threshold",), {"type": float, "default": 0.6}),
-        ArgSpec(("--pipeline-fps-points",), {"type": int, "default": 10000}),
-    ]
+def build_parser() -> argparse.ArgumentParser:
+    """Build command-line parser for model evaluation and gallery export."""
+    parser = argparse.ArgumentParser(
+        description="Evaluate trained models, save sample gallery, and export aggregate stats."
+    )
+
+    parser.add_argument("--dataset", required=True, choices=["shapenet", "modelnet"])
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="basic",
+        choices=["basic", "advanced"],
+        help="Choose corruption pipeline used by core dataset builders.",
+    )
+    parser.add_argument("--data-root", type=str, default=None)
+    parser.add_argument(
+        "--categories", type=str, default=None, help="Comma-separated categories"
+    )
+    parser.add_argument(
+        "--model-spec",
+        "--modelspec",
+        action="append",
+        dest="model_specs",
+        default=[],
+        help="Format: name:model_type:/abs/or/rel/checkpoint.pt (repeatable)",
+    )
+    parser.add_argument("--metrics", type=str, default="chamfer,hausdorff,dcd")
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        default="a",
+        choices=["a", "b", "c", "all"],
+        help="Evaluation scenario: a=completion on dataset input, b=pipeline stages, c=completion on pipeline output, all=run all scenarios.",
+    )
+    parser.add_argument("--density-alpha", type=float, default=1000.0)
+    parser.add_argument("--segment-threshold", type=float, default=0.02)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--num-samples", type=int, default=6)
+    parser.add_argument("--sample-indices", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--train-ratio",
+        type=float,
+        default=0.8,
+        help="Train split ratio. Test ratio is computed implicitly as 1 - train_ratio - val_ratio.",
+    )
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.1,
+        help="Validation split ratio. Test ratio is computed implicitly as 1 - train_ratio - val_ratio.",
+    )
+    parser.add_argument(
+        "--test-samples",
+        type=int,
+        default=None,
+        help="Optional number of samples to process from test split. Omit to process all test samples.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="eval",
+        help="Output directory for evaluation runs. Relative paths are under OUTPUT_DIR.",
+    )
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="Run subdirectory name inside output-dir (auto-generated when omitted).",
+    )
+    parser.add_argument("--gallery-name", type=str, default="evaluation_gallery.png")
+    parser.add_argument(
+        "--metrics-csv-name", type=str, default="evaluation_per_sample.csv"
+    )
+    parser.add_argument(
+        "--summary-csv-name", type=str, default="evaluation_summary.csv"
+    )
+    parser.add_argument(
+        "--segmented-gallery-name", type=str, default="evaluation_segmented_gallery.png"
+    )
+    parser.add_argument(
+        "--segmented-metrics-csv-name",
+        type=str,
+        default="evaluation_segmented_per_sample.csv",
+    )
+    parser.add_argument(
+        "--segmented-summary-csv-name",
+        type=str,
+        default="evaluation_segmented_summary.csv",
+    )
+    parser.add_argument("--views", type=str, default="0,0;0,90")
+    parser.add_argument("--point-size", type=float, default=4.5)
+    parser.add_argument("--max-points", type=int, default=8192)
+    parser.add_argument("--zoom", type=float, default=1.0)
+    parser.add_argument(
+        "--point-rotation",
+        type=str,
+        default="90,0,0",
+        help="Object-space XYZ rotation in degrees applied before rendering (e.g. 0,0,90).",
+    )
+    parser.add_argument("--dpi", type=int, default=300)
+    parser.add_argument("--min-figure-width", type=float, default=0)
+    parser.add_argument("--min-figure-height", type=float, default=0)
+    parser.add_argument("--badge-fontsize", type=float, default=16.0)
+    parser.add_argument(
+        "--metrics-fontsize",
+        type=float,
+        default=8.0,
+        help="Font size for per-cloud metric detail text shown under badge labels.",
+    )
+    parser.add_argument("--caption-fontsize", type=float, default=14.0)
+    parser.add_argument("--side-note-fontsize", type=float, default=14.0)
+    parser.add_argument("--border-linewidth", type=float, default=0.2)
+    parser.add_argument("--block-view-width", type=float, default=3.0)
+    parser.add_argument("--block-row-height", type=float, default=3.0)
+    parser.add_argument("--page-padding", type=float, default=0)
+    parser.add_argument("--max-sample-cols", type=int, default=3)
+    parser.add_argument("--defect-augmentation-count", type=int, default=5)
+    parser.add_argument("--local-dropout-regions", type=int, default=5)
+    parser.add_argument("--dense", action="store_true")
+    parser.add_argument("--dense-root", type=str, default=None)
+    parser.add_argument("--dense-num-points", type=int, default=100000)
+    parser.add_argument("--normalize", action="store_true", default=True)
+    parser.add_argument("--no-normalize", dest="normalize", action="store_false")
+    parser.add_argument("--run-denoise", action="store_true", default=False)
+    parser.add_argument("--run-outlier-before", action="store_true", default=False)
+    parser.add_argument("--run-outlier-after", action="store_true", default=False)
+    parser.add_argument(
+        "--denoise-model-checkpoint",
+        type=str,
+        default="",
+        help="Checkpoint path for pointcleannet denoising model.",
+    )
+    parser.add_argument(
+        "--denoise-params-checkpoint",
+        type=str,
+        default=str(MODEL_PRESETS["denoise"]["params_checkpoint"]),
+        help="Optional params checkpoint for denoise defaults.",
+    )
+    parser.add_argument(
+        "--outlier-model-checkpoint",
+        type=str,
+        default="",
+        help="Checkpoint path for pointcleannet_outliers model.",
+    )
+    parser.add_argument("--pipeline-points-per-patch", type=int, default=0)
+    parser.add_argument("--pipeline-patch-radius", type=float, default=0.0)
+    parser.add_argument("--pipeline-batch-size", type=int, default=128)
+    parser.add_argument("--pipeline-workers", type=int, default=1)
+    parser.add_argument("--pipeline-cache-capacity", type=int, default=100)
+    parser.add_argument("--pipeline-n-neighbours", type=int, default=100)
+    parser.add_argument("--pipeline-outlier-threshold", type=float, default=0.6)
+    parser.add_argument("--pipeline-fps-points", type=int, default=10000)
+
+    return parser
 
 
 def main() -> None:
-    args, cfg = parse_and_bootstrap(
-        _build_arg_schema(),
-        description="Evaluate trained models, save sample gallery, and export aggregate stats.",
-        data_subdir="",
-    )
+    parser = build_parser()
+    args = parser.parse_args()
+    cfg = bootstrap(seed=int(args.seed), data_subdir="")
 
     metrics = _parse_metrics(args.metrics)
     scenario = str(args.scenario).lower()
