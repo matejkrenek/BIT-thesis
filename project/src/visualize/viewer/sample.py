@@ -66,9 +66,15 @@ class SampleViewer(BaseViewer):
 
         ps.imgui.Text(f"Sample {self.index + 1} / {len(self.dataset)}")
 
-        # Display defect log if available (expects sample[2] to be a dict)
-        if len(self.sample) > 2 and isinstance(self.sample[2], dict):
-            for defect, params in self.sample[2].items():
+        # Display defect log only for tuple/list samples where the 3rd item is a dict.
+        sample_log = None
+        if isinstance(self.sample, (tuple, list)) and len(self.sample) > 2:
+            maybe_log = self.sample[2]
+            if isinstance(maybe_log, dict):
+                sample_log = maybe_log
+
+        if sample_log is not None:
+            for defect, params in sample_log.items():
                 ps.imgui.Separator()
                 ps.imgui.TextColored((1.0, 1.0, 1.0, 1.0), f"Applied {defect}:")
                 for key, value in params.items():

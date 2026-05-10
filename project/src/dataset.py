@@ -8,6 +8,7 @@ Responsibility: CLI utility for creating and visualizing reconstruction dataset 
 import argparse
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -230,6 +231,89 @@ def _save_gallery_in_formats(
     return output_paths
 
 
+def _sanitize_label(value: str) -> str:
+    """Convert a cloud label into a filesystem-safe lowercase token."""
+    sanitized = re.sub(r"[^a-zA-Z0-9]+", "_", str(value).strip().lower())
+    return sanitized.strip("_") or "cloud"
+
+
+def _save_single_cloud(
+    *,
+    cloud: np.ndarray,
+    output_path: str,
+    cloud_format: str,
+    npz_key: str,
+) -> None:
+    """Save one point cloud in npz or ply format."""
+    points = np.ascontiguousarray(np.asarray(cloud, dtype=np.float32))
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(f"Cloud must be (N, 3), got {points.shape}")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    if cloud_format == "npz":
+        np.savez_compressed(output_path, **{str(npz_key): points})
+        return
+
+    if cloud_format == "ply":
+        try:
+            import trimesh
+
+            trimesh.PointCloud(points).export(output_path)
+        except Exception:
+            import open3d as o3d
+
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points)
+            o3d.io.write_point_cloud(output_path, pcd)
+        return
+
+    raise ValueError(f"Unsupported cloud format '{cloud_format}'")
+
+
+def _save_clouds_for_gallery(
+    *,
+    run_dir: str,
+    dataset_name: str,
+    mode: str,
+    kept_indices: Sequence[int],
+    pointcloud_rows: Sequence[Sequence[Any]],
+    badge_rows: Sequence[Sequence[str]],
+    cloud_format: str,
+    npz_key: str,
+) -> List[str]:
+    """Export per-sample point clouds for one generated gallery spec."""
+    ext = cloud_format.lower()
+    cloud_dir = os.path.join(run_dir, "clouds", dataset_name, mode)
+    os.makedirs(cloud_dir, exist_ok=True)
+
+    output_paths: List[str] = []
+    for sample_idx, row_clouds, row_labels in zip(
+        kept_indices,
+        pointcloud_rows,
+        badge_rows,
+    ):
+        for cloud_idx, cloud in enumerate(row_clouds):
+            label = (
+                row_labels[cloud_idx]
+                if cloud_idx < len(row_labels)
+                else f"cloud_{cloud_idx}"
+            )
+            safe_label = _sanitize_label(label)
+            filename = f"sample_{int(sample_idx):07d}_{safe_label}.{ext}"
+            out_path = os.path.join(cloud_dir, filename)
+
+            _save_single_cloud(
+                cloud=np.asarray(cloud, dtype=np.float32),
+                output_path=out_path,
+                cloud_format=ext,
+                npz_key=npz_key,
+            )
+            output_paths.append(out_path)
+
+    return output_paths
+
+
 def _collect_gallery_rows(
     dataset,
     chosen_indices: Sequence[int],
@@ -322,6 +406,8 @@ def _build_summary_payload(
             "views": args.views,
             "point_rotation": args.point_rotation,
             "formats": list(formats),
+            "save_clouds_format": args.save_clouds_format,
+            "save_clouds_npz_key": args.save_clouds_npz_key,
         },
         "augmentation": {
             "defect_augmentation_count": int(args.defect_augmentation_count),
@@ -556,6 +642,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include defect log details in caption text.",
     )
 
+    parser.add_argument(
+        "--save-clouds-format",
+        type=str,
+        default="none",
+        choices=["none", "npz", "ply"],
+        help="Optional export format for selected sample point clouds.",
+    )
+    parser.add_argument(
+        "--save-clouds-npz-key",
+        type=str,
+        default="points",
+        help="NPZ key used when --save-clouds-format=npz.",
+    )
+
     return parser
 
 
@@ -583,7 +683,8 @@ def main() -> None:
     run_dir, run_name = _resolve_run_dir(args)
     summary = _build_summary_payload(args, run_name=run_name, formats=formats)
 
-    if not args.generate_images:
+    export_clouds = str(args.save_clouds_format).lower() != "none"
+    if not args.generate_images and not export_clouds:
         logger.info("Image generation disabled (--no-generate-images).")
         return
 
@@ -677,6 +778,19 @@ def main() -> None:
             seed=args.seed,
         )
 
+        cloud_paths: List[str] = []
+        if export_clouds:
+            cloud_paths = _save_clouds_for_gallery(
+                run_dir=run_dir,
+                dataset_name=spec_dataset,
+                mode=spec_mode,
+                kept_indices=kept_indices,
+                pointcloud_rows=pointclouds,
+                badge_rows=badge_labels,
+                cloud_format=str(args.save_clouds_format),
+                npz_key=str(args.save_clouds_npz_key),
+            )
+
         summary["galleries"].append(
             {
                 "dataset": spec_dataset,
@@ -687,6 +801,7 @@ def main() -> None:
                 "sample_indices": [int(i) for i in kept_indices],
                 "skipped": skipped,
                 "outputs": [os.path.relpath(p, run_dir) for p in output_paths],
+                "cloud_outputs": [os.path.relpath(p, run_dir) for p in cloud_paths],
             }
         )
         generated_count += 1
@@ -696,6 +811,13 @@ def main() -> None:
             spec_mode,
             ", ".join(output_paths),
         )
+        if cloud_paths:
+            logger.info(
+                "Saved cloud exports for {}/{} -> {} files",
+                spec_dataset,
+                spec_mode,
+                len(cloud_paths),
+            )
 
     if generated_count == 0:
         raise RuntimeError(

@@ -545,10 +545,10 @@ def _run_completion_with_fps_input(
 def _make_completion_config(model_name: str) -> dict[str, Any]:
     """Create a configuration dictionary for the completion model based on its name, using defaults."""
     name = model_name.strip().lower()
-    if name not in ("pcn", "pointr", "adapointr"):
+    if name not in ["pcn", "pointr", "adapointr"]:
         raise ValueError(
             "Unsupported completion model. Use one of: "
-            f"{', '.join(("pcn", "pointr", "adapointr"))}"
+            + ", ".join(["pcn", "pointr", "adapointr"])
         )
 
     # Validate model availability via centralized constructor defaults.

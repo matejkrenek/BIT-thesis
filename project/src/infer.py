@@ -156,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--denoise-params-checkpoint",
         type=str,
-        default="",
+        required=True,
         help="Optional params checkpoint for denoising defaults.",
     )
     parser.add_argument(
