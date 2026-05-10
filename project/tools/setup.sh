@@ -37,7 +37,15 @@ resolve_conda() {
         return
     fi
 
-    die "conda not found. Install Miniconda first."
+    echo "ERROR: conda not found." >&2
+    echo "" >&2
+    echo "Install Miniconda (Linux, Sophie env) and rerun this script:" >&2
+    echo "  mkdir -p \"/zfs-pool/home/xlogin00/miniconda3\"" >&2
+    echo "  curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh" >&2
+    echo "  bash /tmp/miniconda.sh -b -u -p \"/zfs-pool/home/xlogin00/miniconda3\"" >&2
+    echo "  \"/zfs-pool/home/xlogin00/miniconda3/bin/conda\" init bash" >&2
+    echo "  exec \"$SHELL\"" >&2
+    exit 1
 }
 
 ensure_env_file() {
