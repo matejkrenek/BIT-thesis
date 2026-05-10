@@ -1,7 +1,20 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: utils.py
+Responsibility: Mathematical helper functions for PointCleanNet quaternion rotation and vector-angle computations.
+
+Attribution:
+    This module is adapted from the official PointCleanNet implementation:
+    https://github.com/mrakotosaon/pointcleannet
+    The adaptation keeps numerical behavior and exposes helpers used by local models.
+"""
+
 import torch
 
-# quaternion a + bi + cj + dk should be given in the form [a,b,c,d]
+
 def batch_quat_to_rotmat(q, out=None):
+    """Convert a batch of quaternions in [a, b, c, d] format to rotation matrices."""
 
     batchsize = q.size(0)
 
@@ -9,7 +22,7 @@ def batch_quat_to_rotmat(q, out=None):
         out = torch.FloatTensor(batchsize, 3, 3)
 
     # 2 / squared quaternion 2-norm
-    s = 2/torch.sum(q.pow(2), 1)
+    s = 2 / torch.sum(q.pow(2), 1)
 
     # coefficients of the Hamilton product of the quaternion with itself
     h = torch.bmm(q.unsqueeze(2), q.unsqueeze(1))
@@ -28,6 +41,10 @@ def batch_quat_to_rotmat(q, out=None):
 
     return out
 
-def cos_angle(v1, v2):
 
-    return torch.bmm(v1.unsqueeze(1), v2.unsqueeze(2)).view(-1) / torch.clamp(v1.norm(2, 1) * v2.norm(2, 1), min=0.000001)
+def cos_angle(v1, v2):
+    """Compute cosine of the angle between batched vectors."""
+
+    return torch.bmm(v1.unsqueeze(1), v2.unsqueeze(2)).view(-1) / torch.clamp(
+        v1.norm(2, 1) * v2.norm(2, 1), min=0.000001
+    )

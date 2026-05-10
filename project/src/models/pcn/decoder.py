@@ -1,8 +1,23 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: decoder.py
+Responsibility: Decoder block for PCN that reconstructs coarse and fine point clouds from latent features.
+
+Attribution:
+    This module is adapted from the official PoinTr PCN implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/PCN.py
+    The adaptation keeps folding-based reconstruction behavior while splitting
+    decoder logic into a standalone local module.
+"""
+
 import torch
 import torch.nn as nn
 
 
 class PCNDecoder(nn.Module):
+    """Decode latent features into coarse and dense completed point clouds."""
+
     def __init__(self, num_dense=16384, latent_dim=1024, grid_size=4):
         super().__init__()
 

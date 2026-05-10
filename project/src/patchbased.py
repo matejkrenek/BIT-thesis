@@ -57,7 +57,7 @@ def _parse_model_spec(value: str) -> Tuple[str, str, Path]:
     name = parts[0].strip()
     model_type = parts[1].strip().lower()
     checkpoint = Path(parts[2].strip()).expanduser().resolve()
-    if model_type not in {"pcn", "pointr", "adapointr", "pointmae_completion"}:
+    if model_type not in {"pcn", "pointr", "adapointr"}:
         raise ValueError(f"Unsupported model type: {model_type}")
     if not checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
@@ -245,21 +245,6 @@ def _default_model_params(model_type: str) -> Dict[str, Any]:
                 "cross_attn_combine_style": "concat",
             },
         }
-    if model_type == "pointmae_completion":
-        return {
-            "trans_dim": 384,
-            "num_pred": 16384,
-            "num_query": 224,
-            "num_group": 128,
-            "group_size": 32,
-            "encoder_dims": 384,
-            "depth": 8,
-            "num_heads": 6,
-            "decoder_depth": 4,
-            "mlp_ratio": 4.0,
-            "dropout": 0.0,
-            "pointmae_ckpt": None,
-        }
     raise ValueError(f"Unsupported model type: {model_type}")
 
 
@@ -425,7 +410,7 @@ def _predict_patch_completion(
     )
 
     with torch.no_grad():
-        if model_type in {"pcn", "pointr", "adapointr", "pointmae_completion"}:
+        if model_type in {"pcn", "pointr", "adapointr"}:
             _, pred = model(in_t)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")

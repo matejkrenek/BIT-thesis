@@ -1,3 +1,16 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: transformer.py
+Responsibility: Transformer attention, graph, and deformable-attention building blocks used by AdaPoinTr.
+
+Attribution:
+    This module is adapted from the official PoinTr AdaPoinTr implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/AdaPoinTr.py
+    The adaptation preserves architectural behavior while splitting reusable
+    components into a dedicated local module.
+"""
+
 import torch
 import torch.nn as nn
 from timm.layers import DropPath

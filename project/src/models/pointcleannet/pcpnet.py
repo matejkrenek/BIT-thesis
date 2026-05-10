@@ -1,9 +1,21 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: pcpnet.py
+Responsibility: PCPNet backbone and transformation network variants used by PointCleanNet denoising and outlier models.
+
+Attribution:
+    This module is adapted from the official PointCleanNet implementation:
+    https://github.com/mrakotosaon/pointcleannet
+    The adaptation keeps model behavior while integrating the code into this
+    repository structure.
+"""
+
 from __future__ import print_function
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.parallel
-import torch.utils.data
 import torch.nn.functional as F
 from torch.autograd import Variable
 

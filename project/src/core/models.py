@@ -42,12 +42,6 @@ def _build_pointr(params: Mapping[str, Any]) -> nn.Module:
     return PoinTr(config=config)
 
 
-def _build_pointmae_completion(params: Mapping[str, Any]) -> nn.Module:
-    from models.pointmae_completion import PointMAECompletion
-
-    return PointMAECompletion(**dict(params))
-
-
 class _ConfigNode(dict):
     """Dict with attribute access, recursive for nested config trees."""
 
@@ -91,7 +85,6 @@ def _build_pointcleannet_outliers(params: Mapping[str, Any]) -> nn.Module:
 _MODEL_BUILDERS = {
     "pcn": _build_pcn,
     "pointr": _build_pointr,
-    "pointmaecompletion": _build_pointmae_completion,
     "adapointr": _build_adapointr,
     "pointcleannet": _build_pointcleannet,
     "pointcleannetoutliers": _build_pointcleannet_outliers,
@@ -100,7 +93,6 @@ _MODEL_BUILDERS = {
 _MODEL_CANONICAL_NAMES = {
     "pcn": "pcn",
     "pointr": "pointr",
-    "pointmaecompletion": "pointmae_completion",
     "adapointr": "adapointr",
     "pointcleannet": "pointcleannet",
     "pointcleannetoutliers": "pointcleannet_outliers",

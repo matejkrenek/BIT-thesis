@@ -1,3 +1,16 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: model.py
+Responsibility: PCN model wrapper that composes encoder/decoder and exposes training losses.
+
+Attribution:
+    This module is adapted from the official PoinTr PCN implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/PCN.py
+    The adaptation keeps PCN behavior while splitting the model into local encoder,
+    decoder, and helper-loss modules.
+"""
+
 import torch
 import torch.nn as nn
 from .encoder import PCNEncoder
@@ -6,6 +19,8 @@ from pytorch3d.loss import chamfer_distance
 
 
 class PCN(nn.Module):
+    """Point Completion Network with coarse-to-fine decoding."""
+
     def __init__(self, num_dense=16384, latent_dim=1024, grid_size=4):
         super().__init__()
 
@@ -13,6 +28,7 @@ class PCN(nn.Module):
         self.decoder = PCNDecoder(num_dense, latent_dim, grid_size)
 
     def forward(self, xyz):
+        """Predict coarse and fine completed point clouds from partial input."""
         latent = self.encoder(xyz)
         coarse, fine = self.decoder(latent)
         return coarse, fine
@@ -43,6 +59,7 @@ class PCN(nn.Module):
         return loss.mean()
 
     def compute_loss(self, pred, target, w_coarse=0.1, w_fine=1):
+        """Compute weighted Chamfer loss for coarse and fine outputs."""
         coarse, fine = pred
 
         loss_coarse, _ = chamfer_distance(coarse, target)
@@ -51,6 +68,7 @@ class PCN(nn.Module):
         return loss_coarse * w_coarse + loss_fine * w_fine
 
     def improved_pcn_loss(self, pred, gt, w_c=0.3, w_f=1.0, w_r=0.05):
+        """Compute Chamfer losses with an additional repulsion regularizer."""
         pred_coarse, pred_fine = pred
 
         loss_c, _ = chamfer_distance(pred_coarse, gt)

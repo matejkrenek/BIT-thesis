@@ -76,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--completion-model",
         type=str,
         default="adapointr",
-        choices=["adapointr", "pointmae_completion"],
+        choices=["adapointr"],
         help="Completion backend model.",
     )
 

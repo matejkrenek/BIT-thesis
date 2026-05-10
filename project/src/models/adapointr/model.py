@@ -1,3 +1,16 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: model.py
+Responsibility: AdaPoinTr architecture components and training/evaluation forward-loss logic.
+
+Attribution:
+    This module is adapted from the official PoinTr AdaPoinTr implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/AdaPoinTr.py
+    The adaptation keeps model behavior while integrating it with this repository
+    structure, dependencies, and training interfaces.
+"""
+
 import torch
 import torch.nn as nn
 from functools import partial, reduce
@@ -1273,6 +1286,8 @@ class PCTransformer(nn.Module):
 
 
 class AdaPoinTr(nn.Module):
+    """AdaPoinTr completion model wrapper integrated with local training API."""
+
     def __init__(self, config, **kwargs):
         super().__init__()
         self.trans_dim = config.decoder_config.embed_dim
@@ -1315,9 +1330,11 @@ class AdaPoinTr(nn.Module):
         self.build_loss_func()
 
     def build_loss_func(self):
+        """Build the default reconstruction/denoising loss function."""
         self.loss_func = ChamferDistanceL1()
 
     def get_loss(self, ret, gt, epoch=1):
+        """Compute training or evaluation losses from model outputs."""
         if isinstance(ret, (tuple, list)) and len(ret) == 4:
             pred_coarse, denoised_coarse, denoised_fine, pred_fine = ret
 
@@ -1344,6 +1361,7 @@ class AdaPoinTr(nn.Module):
         raise ValueError(f"Unexpected AdaPoinTr output format for loss: {type(ret)}")
 
     def forward(self, xyz):
+        """Run AdaPoinTr forward pass for training or evaluation mode."""
         q, coarse_point_cloud, denoise_length = self.base_model(xyz)  # B M C and B M 3
 
         B, M, C = q.shape

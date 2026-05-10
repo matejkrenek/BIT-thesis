@@ -1,3 +1,16 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: model.py
+Responsibility: PointCleanNet model wrappers and loss functions for denoising and outlier-removal heads.
+
+Attribution:
+    This module is adapted from the official PointCleanNet implementation:
+    https://github.com/mrakotosaon/pointcleannet
+    The adaptation integrates the architecture into this repository's model API and
+    keeps compatible behavior while removing repository-specific parts not used here.
+"""
+
 from __future__ import annotations
 
 import torch
@@ -28,27 +41,34 @@ class PointCleanNet(nn.Module):
     ):
         super().__init__()
         self.num_points = int(num_points)
+        self.num_scales = int(num_scales)
+        self.output_dim = int(output_dim)
+        self.use_point_stn = bool(use_point_stn)
+        self.use_feat_stn = bool(use_feat_stn)
+        self.sym_op = str(sym_op)
+        self.get_pointfvals = bool(get_pointfvals)
+        self.point_tuple = int(point_tuple)
 
-        if int(num_scales) <= 1:
+        if self.num_scales <= 1:
             self.backbone = ResPCPNet(
                 num_points=self.num_points,
-                output_dim=int(output_dim),
-                use_point_stn=bool(use_point_stn),
-                use_feat_stn=bool(use_feat_stn),
-                sym_op=str(sym_op),
-                get_pointfvals=bool(get_pointfvals),
-                point_tuple=int(point_tuple),
+                output_dim=self.output_dim,
+                use_point_stn=self.use_point_stn,
+                use_feat_stn=self.use_feat_stn,
+                sym_op=self.sym_op,
+                get_pointfvals=self.get_pointfvals,
+                point_tuple=self.point_tuple,
             )
         else:
             self.backbone = ResMSPCPNet(
-                num_scales=int(num_scales),
+                num_scales=self.num_scales,
                 num_points=self.num_points,
-                output_dim=int(output_dim),
-                use_point_stn=bool(use_point_stn),
-                use_feat_stn=bool(use_feat_stn),
-                sym_op=str(sym_op),
-                get_pointfvals=bool(get_pointfvals),
-                point_tuple=int(point_tuple),
+                output_dim=self.output_dim,
+                use_point_stn=self.use_point_stn,
+                use_feat_stn=self.use_feat_stn,
+                sym_op=self.sym_op,
+                get_pointfvals=self.get_pointfvals,
+                point_tuple=self.point_tuple,
             )
 
     def forward(self, xyz: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -88,13 +108,18 @@ class PointCleanNet(nn.Module):
         dist = torch.mean(alpha * min_dist + (1.0 - alpha) * max_dist)
         return dist * 100.0
 
-    def get_loss(self, pred, target_patch: torch.Tensor) -> torch.Tensor:
+    @staticmethod
+    def _unpack_prediction(pred):
+        """Extract point prediction and optional patch rotation from model output."""
         if isinstance(pred, (tuple, list)):
             point_pred = pred[0]
             patch_rot = pred[1] if len(pred) > 1 else None
-        else:
-            point_pred = pred
-            patch_rot = None
+            return point_pred, patch_rot
+        return pred, None
+
+    def get_loss(self, pred, target_patch: torch.Tensor) -> torch.Tensor:
+        """Compute denoising loss for a predicted patch center point."""
+        point_pred, patch_rot = self._unpack_prediction(pred)
 
         if patch_rot is not None:
             # QSTN inverse for rotations is transpose.
@@ -105,6 +130,7 @@ class PointCleanNet(nn.Module):
         return self._surface_distance(point_pred, target_patch)
 
     def compute_loss(self, pred, target_patch: torch.Tensor) -> torch.Tensor:
+        """Alias kept for compatibility with existing training/evaluation scripts."""
         return self.get_loss(pred, target_patch)
 
 
@@ -121,10 +147,8 @@ class PointCleanNetOutliers(PointCleanNet):
         self._bce = nn.BCEWithLogitsLoss()
 
     def get_outlier_loss(self, pred, target_label: torch.Tensor) -> torch.Tensor:
-        if isinstance(pred, (tuple, list)):
-            logits = pred[0]
-        else:
-            logits = pred
+        """Compute BCEWithLogits loss for outlier classification."""
+        logits, _ = self._unpack_prediction(pred)
 
         if logits.ndim == 2 and logits.shape[1] == 1:
             logits = logits[:, 0]
@@ -145,7 +169,9 @@ class PointCleanNetOutliers(PointCleanNet):
         return self._bce(logits, target_label)
 
     def get_loss(self, pred, target_label: torch.Tensor) -> torch.Tensor:
+        """Compute outlier-removal loss for the predicted patch-center logit."""
         return self.get_outlier_loss(pred, target_label)
 
     def compute_loss(self, pred, target_label: torch.Tensor) -> torch.Tensor:
+        """Alias kept for compatibility with existing training/evaluation scripts."""
         return self.get_outlier_loss(pred, target_label)

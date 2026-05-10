@@ -1,3 +1,16 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: utils.py
+Responsibility: Geometric and loss utility functions used by AdaPoinTr components.
+
+Attribution:
+    This module is adapted from the official PoinTr AdaPoinTr implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/AdaPoinTr.py
+    The adaptation keeps utility behavior while replacing some low-level
+    operations with local/PyTorch3D-compatible equivalents.
+"""
+
 from pytorch3d.loss import chamfer_distance
 from pytorch3d.ops import sample_farthest_points, knn_points
 import torch

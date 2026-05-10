@@ -173,7 +173,7 @@ def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
         model_type = parts[1].strip().lower()
         checkpoint = parts[2].strip()
 
-        if model_type not in {"pcn", "pointr", "adapointr", "pointmae_completion"}:
+        if model_type not in {"pcn", "pointr", "adapointr"}:
             raise ValueError(f"Unsupported model_type '{model_type}' in '{raw}'")
         if not name:
             raise ValueError(f"Model name is empty in '{raw}'")
@@ -257,21 +257,6 @@ def _default_model_params(model_type: str) -> Dict[str, Any]:
                 "cross_attn_combine_style": "concat",
             },
         }
-    if model_type == "pointmae_completion":
-        return {
-            "trans_dim": 384,
-            "num_pred": 16384,
-            "num_query": 224,
-            "num_group": 128,
-            "group_size": 32,
-            "encoder_dims": 384,
-            "depth": 8,
-            "num_heads": 6,
-            "decoder_depth": 4,
-            "mlp_ratio": 4.0,
-            "dropout": 0.0,
-            "pointmae_ckpt": None,
-        }
     raise ValueError(f"Unsupported model type: {model_type}")
 
 
@@ -347,7 +332,7 @@ def _predict(
     with torch.no_grad():
         if model_type == "pcn":
             _, pred = model(defected_batched)
-        elif model_type in {"pointr", "adapointr", "pointmae_completion"}:
+        elif model_type in {"pointr", "adapointr"}:
             _, pred = model(defected_batched)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")

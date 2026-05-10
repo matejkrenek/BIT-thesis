@@ -1,3 +1,16 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: utils.py
+Responsibility: Utility functions for PoinTr losses and point-cloud neighborhood/sampling operations.
+
+Attribution:
+    This module is adapted from the official PoinTr implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/PoinTr.py
+    The adaptation keeps utility behavior and uses PyTorch3D-backed operations
+    for compatibility in this repository.
+"""
+
 from pytorch3d.loss import chamfer_distance
 from pytorch3d.ops import sample_farthest_points, knn_points
 import torch
@@ -41,45 +54,47 @@ class ChamferDistanceL1(nn.Module):
 def fps(pc: torch.Tensor, num: int) -> torch.Tensor:
     """
     Farthest Point Sampling using pytorch3d operations.
-    
+
     Args:
         pc: Point cloud tensor of shape [B, N, 3] or [B, 3, N]
         num: Number of points to sample
-        
+
     Returns:
         Sampled point cloud of shape [B, num, 3]
     """
     # Handle input format: if [B, 3, N], transpose to [B, N, 3]
     if pc.shape[1] == 3 and pc.shape[2] != 3:
         pc = pc.transpose(1, 2).contiguous()
-    
+
     pc = pc.contiguous()
-    
+
     # Apply farthest point sampling using pytorch3d
     try:
         sampled_points, _ = sample_farthest_points(pc, K=num, random_start_point=False)
     except RuntimeError:
         # Fallback with float32 conversion if the above fails
         pc_float32 = pc.float()
-        sampled_points, _ = sample_farthest_points(pc_float32, K=num, random_start_point=False)
-    
+        sampled_points, _ = sample_farthest_points(
+            pc_float32, K=num, random_start_point=False
+        )
+
     return sampled_points
 
 
 def fps_indices(xyz: torch.Tensor, num: int) -> torch.Tensor:
     """
     Farthest Point Sampling indices using pytorch3d operations.
-    
+
     Args:
         xyz: Point cloud tensor of shape [B, N, 3] - must be on the same device
         num: Number of points to sample
-        
+
     Returns:
         Indices of sampled points of shape [B, num]
     """
     # Ensure tensor is contiguous and on the correct device
     xyz = xyz.contiguous()
-    
+
     # Use sample_farthest_points without random_start_point for stability
     # This is more reliable for variable-length point clouds
     try:
@@ -87,19 +102,21 @@ def fps_indices(xyz: torch.Tensor, num: int) -> torch.Tensor:
     except RuntimeError:
         # Fallback: use a simpler dtype conversion if the above fails
         xyz_float32 = xyz.float()
-        _, indices = sample_farthest_points(xyz_float32, K=num, random_start_point=False)
-    
+        _, indices = sample_farthest_points(
+            xyz_float32, K=num, random_start_point=False
+        )
+
     return indices
 
 
 def gather_operation(features: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
     """
     Gather features using indices (equivalent to pointnet2_utils.gather_operation).
-    
+
     Args:
         features: Feature tensor of shape [B, C, N]
         indices: Indices tensor of shape [B, num_group]
-        
+
     Returns:
         Gathered features of shape [B, C, num_group]
     """
@@ -118,24 +135,24 @@ def gather_operation(features: torch.Tensor, indices: torch.Tensor) -> torch.Ten
                 "gather_operation index out of bounds: "
                 f"min={min_idx}, max={max_idx}, valid=[0,{max_valid}]"
             )
-    
+
     # Expand indices to match feature dimensions for gathering
     indices_expanded = indices.unsqueeze(1).expand(batch_size, num_channels, num_group)
-    
+
     # Gather along the last dimension
     gathered = torch.gather(features, 2, indices_expanded)
-    
+
     return gathered
 
 
 def fps_sample(xyz: torch.Tensor, m: int) -> torch.Tensor:
     """
     Farthest Point Sampling using pytorch3d operations.
-    
+
     Args:
         xyz: [B, N, 3]
         m: Number of points to sample
-        
+
     Returns:
         centers: [B, m, 3]
     """

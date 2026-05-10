@@ -3,6 +3,12 @@ Author: Matěj Křenek (xkrenem00)
 Contact: xkrenem00@vutbr.cz
 File: pointcleannet_compat.py
 Responsibility: Wrapper dataset for extracting PointCleanNet-compatible patches from point clouds.
+
+Attribution:
+    This compatibility wrapper is adapted from PointCleanNet dataset implementation:
+    https://github.com/mrakotosaon/pointcleannet/blob/master/noise_removal/dataset.py
+    The adaptation keeps the patch extraction behavior while removing unused parts and
+    integrating the code with this repository's dataset interfaces.
 """
 
 from __future__ import annotations

@@ -16,7 +16,6 @@ from core.models import create_model, load_model_checkpoint
 from dataset.wrapper import PointcloudPatchDataset
 from models.adapointr.utils import fps as adapointr_fps
 
-
 # Static model presets; CLI can still override checkpoints.
 MODEL_PRESETS: dict[str, dict[str, Any]] = {
     "denoise": {
@@ -104,24 +103,6 @@ MODEL_PRESETS: dict[str, dict[str, Any]] = {
             },
         },
         "checkpoint": "outputs/adapointr/checkpoints/best.pt",
-    },
-    "completion_pointmae": {
-        "model_name": "pointmae_completion",
-        "model_params": {
-            "num_group": 64,
-            "group_size": 128,
-            "trans_dim": 384,
-            "encoder_dims": 384,
-            "depth": 12,
-            "drop_path_rate": 0.1,
-            "num_heads": 6,
-            "decoder_depth": 4,
-            "decoder_num_heads": 6,
-            "mlp_ratio": 4.0,
-            "mask_ratio": 0.0,
-            "num_output_points": 16384,
-        },
-        "checkpoint": "checkpoints/mae/pretrain.pth",
     },
 }
 
@@ -622,11 +603,7 @@ def _make_completion_config(model_name: str) -> dict[str, Any]:
     name = model_name.strip().lower()
     if name == "adapointr":
         return MODEL_PRESETS["completion_adapointr"]
-    if name in {"pointmae", "pointmae_completion"}:
-        return MODEL_PRESETS["completion_pointmae"]
-    raise ValueError(
-        "Unsupported completion model. Use one of: adapointr, pointmae_completion"
-    )
+    raise ValueError("Unsupported completion model. Use one of: adapointr")
 
 
 def run_inference(options: InferenceOptions) -> InferenceResult:

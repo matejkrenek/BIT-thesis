@@ -123,21 +123,6 @@ def _default_model_params(model_name: str) -> dict[str, Any]:
                 "cross_attn_combine_style": "concat",
             },
         }
-    if model_name == "pointmae_completion":
-        return {
-            "trans_dim": 384,
-            "num_pred": 16384,
-            "num_query": 224,
-            "num_group": 128,
-            "group_size": 32,
-            "encoder_dims": 384,
-            "depth": 8,
-            "num_heads": 6,
-            "decoder_depth": 4,
-            "mlp_ratio": 4.0,
-            "dropout": 0.0,
-            "pointmae_ckpt": None,
-        }
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -147,8 +132,6 @@ def _default_learning_rate(model_name: str) -> float:
     if model_name == "pointr":
         return 3e-4
     if model_name == "adapointr":
-        return 3e-4
-    if model_name == "pointmae_completion":
         return 3e-4
     raise ValueError(f"Unsupported model '{model_name}'")
 
@@ -160,8 +143,6 @@ def _default_weight_decay(model_name: str) -> float:
         return 1e-4
     if model_name == "adapointr":
         return 1e-4
-    if model_name == "pointmae_completion":
-        return 1e-4
     raise ValueError(f"Unsupported model '{model_name}'")
 
 
@@ -169,8 +150,6 @@ def _cap_batch_size_for_model(model_name: str, batch_size: int, overfit: bool) -
     if model_name == "adapointr":
         # AdaPoinTr decoder-attention is memory heavy on 8GB GPUs.
         return min(batch_size, 2 if overfit else 4)
-    if model_name == "pointmae_completion":
-        return min(batch_size, 4 if overfit else 8)
     return batch_size
 
 
@@ -261,25 +240,6 @@ def _compute_loss(
             pieces = [item for item in loss_value if torch.is_tensor(item)]
             if not pieces:
                 raise ValueError("AdaPoinTr loss tuple did not contain tensor items")
-            total = sum(pieces)
-            metrics = {
-                "total": float(total.detach().item()),
-                "coarse": float(pieces[0].detach().item()),
-                "fine": float(pieces[1].detach().item()) if len(pieces) > 1 else 0.0,
-            }
-            return total, metrics
-
-        total = loss_value
-        return total, {"total": float(total.detach().item())}
-
-    if model_name == "pointmae_completion":
-        loss_value = core_model.get_loss(prediction, target)
-        if isinstance(loss_value, (tuple, list)):
-            pieces = [item for item in loss_value if torch.is_tensor(item)]
-            if not pieces:
-                raise ValueError(
-                    "PointMAECompletion loss tuple did not contain tensor items"
-                )
             total = sum(pieces)
             metrics = {
                 "total": float(total.detach().item()),

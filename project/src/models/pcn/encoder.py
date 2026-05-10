@@ -1,8 +1,23 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: encoder.py
+Responsibility: Encoder block for PCN that extracts a global latent feature from partial point clouds.
+
+Attribution:
+    This module is adapted from the official PoinTr PCN implementation:
+    https://github.com/yuxumin/PoinTr/blob/master/models/PCN.py
+    The adaptation separates encoder logic into a standalone file while preserving
+    tensor shapes and feature aggregation behavior.
+"""
+
 import torch
 import torch.nn as nn
 
 
 class PCNEncoder(nn.Module):
+    """Encode input point cloud of shape (B, N, 3) into a latent vector."""
+
     def __init__(self, latent_dim=1024):
         super().__init__()
 
