@@ -1,3 +1,10 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: eval.py
+Responsibility: Evaluates completion models and optional denoising/outlier stages, then exports metrics and galleries.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -45,14 +52,13 @@ from metrics import (
     density_aware_chamfer_distance_metric,
     hausdorff_distance_metric,
 )
-from models import PCN, PoinTr
 from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
-
-SUPPORTED_METRICS = ("chamfer", "hausdorff", "dcd")
 
 
 @dataclass(frozen=True)
 class EvalModelSpec:
+    """Specification for a model to evaluate, including its name, type, and checkpoint path."""
+
     name: str
     model_type: str
     checkpoint: Path
@@ -60,6 +66,8 @@ class EvalModelSpec:
 
 @dataclass
 class PipelineRuntime:
+    """Runtime configuration and loaded models for optional pipeline stages."""
+
     denoise_model: Optional[torch.nn.Module]
     outlier_model: Optional[torch.nn.Module]
     run_denoise: bool
@@ -85,6 +93,7 @@ def _compute_metric_values_single(
     metrics: Sequence[str],
     density_alpha: float,
 ) -> Dict[str, float]:
+    """Compute metric values for a single predicted and ground truth point cloud pair."""
     values = _compute_metric_values_batch(
         pred.unsqueeze(0),
         gt.unsqueeze(0),
@@ -95,14 +104,16 @@ def _compute_metric_values_single(
 
 
 def _parse_metrics(value: str) -> List[str]:
+    """Parse and validate metric names from a comma-separated CLI value."""
     metrics = [m.strip().lower() for m in value.split(",") if m.strip()]
     if not metrics:
         raise ValueError("No metrics parsed from --metrics")
 
-    invalid = [m for m in metrics if m not in SUPPORTED_METRICS]
+    invalid = [m for m in metrics if m not in ("chamfer", "hausdorff", "dcd")]
     if invalid:
         raise ValueError(
-            f"Unsupported metrics: {invalid}. Supported: {list(SUPPORTED_METRICS)}"
+            "Unsupported metrics: "
+            f"{invalid}. Supported: {list(("chamfer", "hausdorff", "dcd"))}"
         )
     return metrics
 
@@ -110,6 +121,7 @@ def _parse_metrics(value: str) -> List[str]:
 def _validate_split_ratios(
     train_ratio: float, val_ratio: float
 ) -> Tuple[float, float, float]:
+    """Validate and compute train/val/test split ratios from CLI inputs."""
     train_ratio = float(train_ratio)
     val_ratio = float(val_ratio)
 
@@ -128,10 +140,13 @@ def _validate_split_ratios(
 
 
 def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
+    """Parse CLI model specs in format name:model_type:checkpoint_path."""
     if not values:
         raise ValueError("At least one --model-spec/--modelspec must be provided")
 
     specs: List[EvalModelSpec] = []
+
+    # Iterate over raw model spec strings and parse into structured EvalModelSpec instances, validating format and content.
     for raw in values:
         parts = raw.split(":", 2)
         if len(parts) != 3:
@@ -143,7 +158,7 @@ def _parse_model_specs(values: Sequence[str]) -> List[EvalModelSpec]:
         model_type = parts[1].strip().lower()
         checkpoint = parts[2].strip()
 
-        if model_type not in {"pcn", "pointr", "adapointr"}:
+        if model_type not in ("pcn", "pointr", "adapointr"):
             raise ValueError(f"Unsupported model_type '{model_type}' in '{raw}'")
         if not name:
             raise ValueError(f"Model name is empty in '{raw}'")
@@ -162,6 +177,7 @@ def _legacy_load_state_dict(
     checkpoint_path: Path,
     device: torch.device,
 ) -> None:
+    """Legacy checkpoint loader that attempts to handle common state dict format variations for compatibility."""
     checkpoint = torch.load(checkpoint_path, map_location=device)
     state = checkpoint.get("model_state", checkpoint)
 
@@ -193,6 +209,7 @@ def _legacy_load_state_dict(
 
 
 def _build_model(spec: EvalModelSpec, device: torch.device) -> torch.nn.Module:
+    """Create and load a model based on the provided EvalModelSpec, with flexible checkpoint loading for compatibility."""
     model = create_model(
         ModelConfig(
             name=spec.model_type, params=get_default_model_params(spec.model_type)
@@ -226,10 +243,9 @@ def _predict(
     defected_batched: torch.Tensor,
     target_points: int,
 ) -> torch.Tensor:
+    """Run a forward pass through the model to get predicted point cloud, with optional sampling to target number of points."""
     with torch.no_grad():
-        if model_type == "pcn":
-            _, pred = model(defected_batched)
-        elif model_type in {"pointr", "adapointr"}:
+        if model_type in {"pointr", "adapointr", "pcn"}:
             _, pred = model(defected_batched)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -248,6 +264,7 @@ def _compute_metric_values_batch(
     pred_lengths: Optional[torch.Tensor] = None,
     gt_lengths: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
+    """Compute metric values for batches of predicted and ground truth point clouds, with optional support for variable point counts via lengths tensors."""
     out: Dict[str, torch.Tensor] = {}
 
     if "chamfer" in metrics:
@@ -282,6 +299,7 @@ def _compute_metric_values_batch(
 def _compute_aggregate_table(
     records: List[Dict[str, object]], metrics: Sequence[str]
 ) -> List[Dict[str, object]]:
+    """Aggregate per-sample metric records into a summary table of mean/median/std/count for each model and metric combination."""
     by_model: Dict[str, Dict[str, List[float]]] = {}
     for rec in records:
         model_name = str(rec["model"])
@@ -336,6 +354,7 @@ def _build_segment_reference(
     defected: torch.Tensor,
     segment_threshold: float,
 ) -> Dict[str, torch.Tensor]:
+    """Build reference segmentation of original and defected point clouds based on nearest neighbor distances, to enable segmented metric computation."""
     d2 = (
         knn_points(original.unsqueeze(0), defected.unsqueeze(0), K=1)
         .dists.squeeze(0)
@@ -365,6 +384,7 @@ def _split_current_by_reference(
     original: torch.Tensor,
     repaired_target_mask: torch.Tensor,
 ) -> Dict[str, torch.Tensor]:
+    """Split the current point cloud into 'repaired' and 'preserved' segments based on nearest neighbor mapping to the original and the repaired target mask."""
     nn_idx = (
         knn_points(current.unsqueeze(0), original.unsqueeze(0), K=1)
         .idx.squeeze(0)
@@ -385,6 +405,7 @@ def _pair_metric(
     metric_name: str,
     density_alpha: float,
 ) -> float:
+    """Compute a single metric value for a pair of point clouds, with handling for empty inputs and support for multiple metric types."""
     if source.numel() == 0 or target.numel() == 0:
         return float("nan")
 
@@ -412,6 +433,7 @@ def _compute_segmented_metrics(
     metrics: Sequence[str],
     density_alpha: float,
 ) -> Dict[str, float]:
+    """Compute segmented metric values for the 'repaired' and 'preserved' segments of the current point cloud against the corresponding segments of the original, based on the provided reference segmentation."""
     out: Dict[str, float] = {}
 
     for metric_name in metrics:
@@ -436,6 +458,7 @@ def _segmented_metric_lines(
     prefix: str,
     metrics: Sequence[str],
 ) -> List[str]:
+    """Format segmented metric values into human-readable lines for reporting, with a consistent prefix and support for multiple metric types."""
     lines: List[str] = []
     for metric_name in metrics:
         key = f"{prefix}_{metric_name}"
@@ -447,6 +470,7 @@ def _segmented_metric_lines(
 def _save_per_sample_csv(
     path: Path, records: List[Dict[str, object]], metrics: Sequence[str]
 ) -> None:
+    """Save per-sample metric records to a CSV file, including sample index, model name, and metric values for each specified metric."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -463,6 +487,7 @@ def _save_per_sample_csv(
 
 
 def _save_aggregate_csv(path: Path, rows: List[Dict[str, object]]) -> None:
+    """Save aggregate metric summary to a CSV file, including model name, metric name, mean/median/std/count for each model and metric combination."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -481,6 +506,7 @@ def _save_aggregate_csv(path: Path, rows: List[Dict[str, object]]) -> None:
 
 
 def _format_metric_short(name: str, value: float) -> str:
+    """Format a metric name and value into a short human-readable string, with special handling for known metric types to use common abbreviations."""
     if name == "dcd":
         return f"DCD={value:.5f}"
     if name == "chamfer":
@@ -493,6 +519,7 @@ def _format_metric_short(name: str, value: float) -> str:
 def _metrics_to_lines(
     metric_values: Dict[str, float], metrics: Sequence[str]
 ) -> List[str]:
+    """Format metric values into human-readable lines for reporting, with support for multiple metric types and consistent formatting."""
     return [
         _format_metric_short(metric_name, metric_values[metric_name])
         for metric_name in metrics
@@ -501,6 +528,7 @@ def _metrics_to_lines(
 
 
 def _build_dataset(args, data_root: Path):
+    """Build the dataset for evaluation based on CLI arguments, including dataset type, categories, and augmentation options."""
     categories = _parse_csv(args.categories)
 
     if args.dataset == "shapenet":
@@ -536,6 +564,7 @@ def _build_dataset(args, data_root: Path):
 
 
 def _extract_sample_category(sample: Any) -> str:
+    """Extract the category name from a dataset sample, trying multiple common attribute and key names, with graceful handling of missing or empty values."""
     if sample is None:
         return ""
 
@@ -563,6 +592,7 @@ def _resolve_sample_category(
     test_dataset,
     sample_idx: int,
 ) -> str:
+    """Resolve the category name for a given sample index, first trying the test dataset sample and then falling back to the full dataset if the test dataset is a subset, with graceful handling of missing or empty category information."""
     try:
         sample = test_dataset[sample_idx]
         category = _extract_sample_category(sample)
@@ -585,11 +615,6 @@ def _resolve_sample_category(
     return ""
 
 
-def _build_category_caption(category: str) -> str:
-    category = str(category).strip()
-    return f"category: {category}" if category else ""
-
-
 def _resolve_clean_gt_for_sample(
     *,
     full_dataset,
@@ -597,6 +622,7 @@ def _resolve_clean_gt_for_sample(
     sample_idx: int,
     fallback_gt: torch.Tensor,
 ) -> torch.Tensor:
+    """Resolve the clean ground truth point cloud for a given sample index, first trying the test dataset sample and then falling back to the full dataset if the test dataset is a subset, with graceful handling of missing or incompatible data."""
     if not isinstance(test_dataset, Subset):
         return fallback_gt
 
@@ -620,6 +646,7 @@ def _resolve_clean_gt_for_sample(
 
 
 def _build_pipeline_runtime(args, cfg) -> Optional[PipelineRuntime]:
+    """Build the PipelineRuntime configuration and load any necessary models for the optional pipeline stages based on CLI arguments."""
     run_denoise = bool(args.run_denoise)
     run_outlier_before = bool(args.run_outlier_before)
     run_outlier_after = bool(args.run_outlier_after)
@@ -749,6 +776,7 @@ def _run_pipeline_preprocess(
     seed: int,
     device: torch.device,
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, float]]:
+    """Run the optional preprocessing pipeline stages (outlier filtering and denoising) on the input defected point cloud, while keeping track of intermediate stages and timings for reporting and analysis."""
     current = np.asarray(defected_np, dtype=np.float32)
     reference = np.asarray(clean_gt_np, dtype=np.float32)
 
@@ -851,7 +879,255 @@ def _run_pipeline_preprocess(
     return stages, timings
 
 
+def _run_scenario_b(
+    *,
+    sample_idx: int,
+    original_i: torch.Tensor,
+    defected_full_i: torch.Tensor,
+    pipeline_runtime: PipelineRuntime,
+    device: torch.device,
+    metrics: Sequence[str],
+    density_alpha: float,
+    seed: int,
+    run_scenario_b: bool,
+    per_sample_records: List[Dict[str, object]],
+) -> Tuple[
+    Dict[str, np.ndarray], Dict[str, float], torch.Tensor, Dict[str, Dict[str, float]]
+]:
+    """Run scenario B preprocessing pipeline and optional stage metric evaluation."""
+    pipeline_stages, pipeline_stage_timings = _run_pipeline_preprocess(
+        runtime=pipeline_runtime,
+        defected_np=defected_full_i.detach().cpu().numpy().astype(np.float32),
+        clean_gt_np=original_i.detach().cpu().numpy().astype(np.float32),
+        seed=int(seed) + int(sample_idx),
+        device=device,
+    )
+
+    for stage_name, seconds in pipeline_stage_timings.items():
+        per_sample_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": f"T::{stage_name}",
+                "metrics": {"seconds": float(seconds)},
+            }
+        )
+
+    gt_fps_points = min(pipeline_runtime.fps_points, int(original_i.shape[0]))
+    gt_fps_i, _ = sample_farthest_points(
+        original_i.unsqueeze(0),
+        K=gt_fps_points,
+    )
+    gt_fps_i = gt_fps_i[0]
+
+    scenario_b_stage_metrics: Dict[str, Dict[str, float]] = {}
+    if run_scenario_b:
+        scenario_b_rows: List[Tuple[str, str]] = [("B::Input", "input")]
+        if "outlier_1" in pipeline_stages:
+            scenario_b_rows.append(("B::OutlierRemoval#1", "outlier_1"))
+        if "denoise" in pipeline_stages:
+            scenario_b_rows.append(("B::Denoising", "denoise"))
+        if "outlier_2" in pipeline_stages:
+            scenario_b_rows.append(("B::OutlierRemoval#2", "outlier_2"))
+
+        for row_name, stage_key in scenario_b_rows:
+            stage_t = torch.from_numpy(pipeline_stages[stage_key]).float().to(device)
+            stage_metrics = _compute_metric_values_single(
+                pred=stage_t,
+                gt=original_i,
+                metrics=metrics,
+                density_alpha=density_alpha,
+            )
+            per_sample_records.append(
+                {
+                    "sample_index": sample_idx,
+                    "model": row_name,
+                    "metrics": stage_metrics,
+                }
+            )
+            scenario_b_stage_metrics[stage_key] = stage_metrics
+
+        fps_t = torch.from_numpy(pipeline_stages["fps"]).float().to(device)
+        fps_metrics = _compute_metric_values_single(
+            pred=fps_t,
+            gt=gt_fps_i,
+            metrics=metrics,
+            density_alpha=density_alpha,
+        )
+        per_sample_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": "B::FPS10k",
+                "metrics": fps_metrics,
+            }
+        )
+        scenario_b_stage_metrics["fps"] = fps_metrics
+
+    return pipeline_stages, pipeline_stage_timings, gt_fps_i, scenario_b_stage_metrics
+
+
+def _run_scenario_a(
+    *,
+    sample_idx: int,
+    batch_item_idx: int,
+    original_i: torch.Tensor,
+    defected_i: torch.Tensor,
+    model_specs: Sequence[EvalModelSpec],
+    model_pred_batches: Dict[str, torch.Tensor],
+    model_pred_time_per_sample: Dict[str, float],
+    metrics: Sequence[str],
+    density_alpha: float,
+    segment_threshold: float,
+    device: torch.device,
+    per_sample_records: List[Dict[str, object]],
+    segmented_records: List[Dict[str, object]],
+) -> Dict[str, object]:
+    """Run scenario A metrics and segmented analysis for one sample."""
+    reference = _build_segment_reference(
+        original=original_i,
+        defected=defected_i,
+        segment_threshold=segment_threshold,
+    )
+    defected_metric_values = _compute_metric_values_single(
+        pred=defected_i,
+        gt=original_i,
+        metrics=metrics,
+        density_alpha=density_alpha,
+    )
+    per_sample_records.append(
+        {
+            "sample_index": sample_idx,
+            "model": "A::Defected",
+            "metrics": defected_metric_values,
+        }
+    )
+
+    sample_predictions: Dict[str, torch.Tensor] = {}
+    sample_metrics: Dict[str, Dict[str, float]] = {}
+    sample_segmented: Dict[str, Dict[str, object]] = {}
+
+    for spec in model_specs:
+        model_metric_values = _compute_metric_values_single(
+            pred=model_pred_batches[spec.name][batch_item_idx].to(device),
+            gt=original_i,
+            metrics=metrics,
+            density_alpha=density_alpha,
+        )
+
+        per_sample_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": f"T::A::{spec.name}",
+                "metrics": {
+                    "seconds": float(model_pred_time_per_sample.get(spec.name, 0.0))
+                },
+            }
+        )
+
+        per_sample_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": f"A::{spec.name}",
+                "metrics": model_metric_values,
+            }
+        )
+
+        current_pred_i = model_pred_batches[spec.name][batch_item_idx].to(device)
+        pred_split = _split_current_by_reference(
+            current=current_pred_i,
+            original=original_i,
+            repaired_target_mask=reference["repaired_target_mask"],
+        )
+        pred_segment_metrics = _compute_segmented_metrics(
+            original=original_i,
+            current=current_pred_i,
+            reference=reference,
+            current_split=pred_split,
+            metrics=metrics,
+            density_alpha=density_alpha,
+        )
+        segmented_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": f"A::{spec.name}",
+                "metrics": pred_segment_metrics,
+            }
+        )
+
+        sample_metrics[spec.name] = model_metric_values
+        sample_predictions[spec.name] = model_pred_batches[spec.name][batch_item_idx]
+        sample_segmented[spec.name] = {
+            "current_repaired": pred_split["current_repaired"].detach().cpu(),
+            "current_preserved": pred_split["current_preserved"].detach().cpu(),
+            "metrics": pred_segment_metrics,
+        }
+
+    return {
+        "reference": reference,
+        "defected_metric_values": defected_metric_values,
+        "sample_predictions": sample_predictions,
+        "sample_metrics": sample_metrics,
+        "sample_segmented": sample_segmented,
+    }
+
+
+def _run_scenario_c(
+    *,
+    sample_idx: int,
+    gt_fps_i: torch.Tensor,
+    pipeline_stages: Dict[str, np.ndarray],
+    model_entries: Sequence[Tuple[EvalModelSpec, torch.nn.Module]],
+    metrics: Sequence[str],
+    density_alpha: float,
+    device: torch.device,
+    per_sample_records: List[Dict[str, object]],
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, Dict[str, float]]]:
+    """Run scenario C completion-on-pipeline-output for one sample."""
+    completion_input_t = (
+        torch.from_numpy(pipeline_stages["fps"]).float().unsqueeze(0).to(device)
+    )
+
+    sample_c_predictions: Dict[str, torch.Tensor] = {}
+    sample_c_metrics: Dict[str, Dict[str, float]] = {}
+
+    for spec, model in model_entries:
+        t_pred0 = time.perf_counter()
+        pred_c = _predict(
+            model,
+            spec.model_type,
+            completion_input_t,
+            target_points=int(gt_fps_i.shape[0]),
+        )[0]
+        pred_c_elapsed = float(time.perf_counter() - t_pred0)
+
+        per_sample_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": f"T::C::{spec.name}",
+                "metrics": {"seconds": pred_c_elapsed},
+            }
+        )
+
+        c_metrics = _compute_metric_values_single(
+            pred=pred_c,
+            gt=gt_fps_i,
+            metrics=metrics,
+            density_alpha=density_alpha,
+        )
+        per_sample_records.append(
+            {
+                "sample_index": sample_idx,
+                "model": f"C::{spec.name}",
+                "metrics": c_metrics,
+            }
+        )
+        sample_c_predictions[spec.name] = pred_c.detach().cpu()
+        sample_c_metrics[spec.name] = c_metrics
+
+    return sample_c_predictions, sample_c_metrics
+
+
 def _resolve_run_dir(args, default_output_root: Path) -> Path:
+    """Resolve the output directory for the evaluation run based on CLI arguments, creating a timestamped subdirectory if a run name is not provided, and ensuring the directory exists before returning its absolute path."""
     output_root = Path(args.output_dir)
     if not output_root.is_absolute():
         output_root = default_output_root / output_root
@@ -1022,16 +1298,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Main entry point for evaluation script, handling argument parsing, dataset loading, pipeline setup, and orchestrating the evaluation process based on specified scenarios and configurations."""
     parser = build_parser()
     args = parser.parse_args()
     cfg = bootstrap(seed=int(args.seed), data_subdir="")
 
+    # Pre-parse metrics and model specs to fail fast on invalid input before doing any heavy lifting
     metrics = _parse_metrics(args.metrics)
     scenario = str(args.scenario).lower()
     run_scenario_a = scenario in {"a", "all"}
     run_scenario_b = scenario in {"b", "all"}
     run_scenario_c = scenario in {"c", "all"}
 
+    # For scenarios A and C, model specs are required to compute metrics against model outputs. For scenario B, model specs are optional since it focuses on pipeline stage comparisons, but if provided they will be parsed and validated.
     if run_scenario_a or run_scenario_c:
         model_specs = _parse_model_specs(args.model_specs)
     else:
@@ -1051,6 +1330,7 @@ def main() -> None:
     else:
         args.dense_root = str(data_root / "ShapeNetV2_dense")
 
+    # Prepare output directories and file paths
     run_dir = _resolve_run_dir(args, cfg.output_dir)
     gallery_output = run_dir / args.gallery_name
     metrics_csv = run_dir / args.metrics_csv_name
@@ -1063,6 +1343,7 @@ def main() -> None:
     logger.info("Data root: {root}", root=data_root)
     logger.info("Run output dir: {run_dir}", run_dir=run_dir)
 
+    # Prepare dataset & splits
     train_ratio, val_ratio, test_ratio = _validate_split_ratios(
         args.train_ratio,
         args.val_ratio,
@@ -1100,6 +1381,7 @@ def main() -> None:
     )
     logger.info("Test split size: {size}", size=test_split_size)
 
+    # Limit number of samples to be processed
     if args.test_samples is None:
         processed_test_size = test_split_size
     else:
@@ -1117,6 +1399,7 @@ def main() -> None:
         count=processed_test_size,
     )
 
+    # Build pipeline runtime configuration
     pipeline_runtime = _build_pipeline_runtime(args, cfg)
     if pipeline_runtime is None and (run_scenario_b or run_scenario_c):
         pipeline_runtime = PipelineRuntime(
@@ -1150,6 +1433,7 @@ def main() -> None:
             fps_points=max(1, int(args.pipeline_fps_points)),
         )
 
+    # Select samples randomly or by specified indices in CLI
     if args.sample_indices:
         chosen_indices = _parse_indices(args.sample_indices)
         invalid = [i for i in chosen_indices if i < 0 or i >= processed_test_size]
@@ -1167,43 +1451,41 @@ def main() -> None:
 
     selected_set = set(chosen_indices)
 
+    # Prepare model specifications and load models
     model_entries: List[Tuple[EvalModelSpec, torch.nn.Module]] = []
     for spec in model_specs:
         checkpoint_path = spec.checkpoint.expanduser().resolve()
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
+        resolved_spec = EvalModelSpec(
+            name=spec.name,
+            model_type=spec.model_type,
+            checkpoint=checkpoint_path,
+        )
+
         logger.info(
             "Loading model '{name}' ({mtype}) from {path}",
-            name=spec.name,
-            mtype=spec.model_type,
+            name=resolved_spec.name,
+            mtype=resolved_spec.model_type,
             path=checkpoint_path,
         )
 
         model_entries.append(
             (
-                EvalModelSpec(
-                    name=spec.name,
-                    model_type=spec.model_type,
-                    checkpoint=checkpoint_path,
-                ),
-                _build_model(
-                    EvalModelSpec(
-                        name=spec.name,
-                        model_type=spec.model_type,
-                        checkpoint=checkpoint_path,
-                    ),
-                    cfg.device,
-                ),
+                resolved_spec,
+                _build_model(resolved_spec, cfg.device),
             )
         )
 
+    # Prepare output data structures
     per_sample_records: List[Dict[str, object]] = []
     selected_payload: Dict[int, Dict[str, object]] = {}
     selected_pipeline_payload: Dict[int, Dict[str, object]] = {}
     segmented_records: List[Dict[str, object]] = []
     segmented_selected_payload: Dict[int, Dict[str, object]] = {}
 
+    # Process batches from test split loader
     running_sample_idx = 0
     total_eval_batches = (
         (processed_test_size + eval_batch_size - 1) // eval_batch_size
@@ -1267,7 +1549,10 @@ def main() -> None:
                 test_dataset=test_dataset,
                 sample_idx=sample_idx,
             )
-            sample_category_caption = _build_category_caption(sample_category)
+            sample_category = str(sample_category).strip()
+            sample_category_caption = (
+                f"category: {sample_category}" if sample_category else ""
+            )
             if args.mode == "advanced":
                 original_i = _resolve_clean_gt_for_sample(
                     full_dataset=dataset,
@@ -1277,6 +1562,9 @@ def main() -> None:
                 )
             defected_i = defected_for_model[i]
             scenario_b_stage_metrics: Dict[str, Dict[str, float]] = {}
+            pipeline_stages: Dict[str, np.ndarray] = {}
+            pipeline_stage_timings: Dict[str, float] = {}
+            gt_fps_i: Optional[torch.Tensor] = None
 
             if run_scenario_b or run_scenario_c:
                 if pipeline_runtime is None:
@@ -1285,86 +1573,23 @@ def main() -> None:
                     )
 
                 defected_full_i = padded_defected[i, : int(defected_lengths[i].item())]
-                pipeline_stages, pipeline_stage_timings = _run_pipeline_preprocess(
-                    runtime=pipeline_runtime,
-                    defected_np=defected_full_i.detach()
-                    .cpu()
-                    .numpy()
-                    .astype(np.float32),
-                    clean_gt_np=original_i.detach().cpu().numpy().astype(np.float32),
-                    seed=int(args.seed) + int(sample_idx),
+                (
+                    pipeline_stages,
+                    pipeline_stage_timings,
+                    gt_fps_i,
+                    scenario_b_stage_metrics,
+                ) = _run_scenario_b(
+                    sample_idx=sample_idx,
+                    original_i=original_i,
+                    defected_full_i=defected_full_i,
+                    pipeline_runtime=pipeline_runtime,
                     device=cfg.device,
+                    metrics=metrics,
+                    density_alpha=args.density_alpha,
+                    seed=int(args.seed),
+                    run_scenario_b=run_scenario_b,
+                    per_sample_records=per_sample_records,
                 )
-
-                for stage_name, seconds in pipeline_stage_timings.items():
-                    per_sample_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": f"T::{stage_name}",
-                            "metrics": {"seconds": float(seconds)},
-                        }
-                    )
-
-                gt_fps_points = min(
-                    pipeline_runtime.fps_points, int(original_i.shape[0])
-                )
-                gt_fps_i, _ = sample_farthest_points(
-                    original_i.unsqueeze(0),
-                    K=gt_fps_points,
-                )
-                gt_fps_i = gt_fps_i[0]
-
-                if run_scenario_b:
-                    scenario_b_rows: List[Tuple[str, str]] = [("B::Input", "input")]
-                    if "outlier_1" in pipeline_stages:
-                        scenario_b_rows.append(("B::OutlierRemoval#1", "outlier_1"))
-                    if "denoise" in pipeline_stages:
-                        scenario_b_rows.append(("B::Denoising", "denoise"))
-                    if "outlier_2" in pipeline_stages:
-                        scenario_b_rows.append(("B::OutlierRemoval#2", "outlier_2"))
-
-                    for row_name, stage_key in scenario_b_rows:
-                        stage_t = (
-                            torch.from_numpy(pipeline_stages[stage_key])
-                            .float()
-                            .to(cfg.device)
-                        )
-                        stage_metrics = _compute_metric_values_single(
-                            pred=stage_t,
-                            gt=original_i,
-                            metrics=metrics,
-                            density_alpha=args.density_alpha,
-                        )
-                        per_sample_records.append(
-                            {
-                                "sample_index": sample_idx,
-                                "model": row_name,
-                                "metrics": stage_metrics,
-                            }
-                        )
-                        scenario_b_stage_metrics[stage_key] = stage_metrics
-
-                    fps_t = (
-                        torch.from_numpy(pipeline_stages["fps"]).float().to(cfg.device)
-                    )
-                    fps_metrics = _compute_metric_values_single(
-                        pred=fps_t,
-                        gt=gt_fps_i,
-                        metrics=metrics,
-                        density_alpha=args.density_alpha,
-                    )
-                    per_sample_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": "B::FPS10k",
-                            "metrics": fps_metrics,
-                        }
-                    )
-                    scenario_b_stage_metrics["fps"] = fps_metrics
-            else:
-                pipeline_stages = {}
-                pipeline_stage_timings = {}
-                gt_fps_i = None
 
             sample_predictions: Dict[str, torch.Tensor] = {}
             sample_metrics: Dict[str, Dict[str, float]] = {}
@@ -1372,133 +1597,49 @@ def main() -> None:
             sample_c_predictions: Dict[str, torch.Tensor] = {}
             sample_c_metrics: Dict[str, Dict[str, float]] = {}
             defected_metric_values: Dict[str, float] = {}
+            reference: Optional[Dict[str, torch.Tensor]] = None
 
             if run_scenario_a:
-                reference = _build_segment_reference(
-                    original=original_i,
-                    defected=defected_i,
-                    segment_threshold=args.segment_threshold,
-                )
-                defected_metric_values = _compute_metric_values_single(
-                    pred=defected_i,
-                    gt=original_i,
+                scenario_a_out = _run_scenario_a(
+                    sample_idx=sample_idx,
+                    batch_item_idx=i,
+                    original_i=original_i,
+                    defected_i=defected_i,
+                    model_specs=model_specs,
+                    model_pred_batches=model_pred_batches,
+                    model_pred_time_per_sample=model_pred_time_per_sample,
                     metrics=metrics,
                     density_alpha=args.density_alpha,
+                    segment_threshold=args.segment_threshold,
+                    device=cfg.device,
+                    per_sample_records=per_sample_records,
+                    segmented_records=segmented_records,
                 )
-                per_sample_records.append(
-                    {
-                        "sample_index": sample_idx,
-                        "model": "A::Defected",
-                        "metrics": defected_metric_values,
-                    }
-                )
-
-                for spec in model_specs:
-                    model_metric_values = _compute_metric_values_single(
-                        pred=model_pred_batches[spec.name][i].to(cfg.device),
-                        gt=original_i,
-                        metrics=metrics,
-                        density_alpha=args.density_alpha,
-                    )
-
-                    per_sample_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": f"T::A::{spec.name}",
-                            "metrics": {
-                                "seconds": float(
-                                    model_pred_time_per_sample.get(spec.name, 0.0)
-                                )
-                            },
-                        }
-                    )
-
-                    per_sample_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": f"A::{spec.name}",
-                            "metrics": model_metric_values,
-                        }
-                    )
-
-                    current_pred_i = model_pred_batches[spec.name][i].to(cfg.device)
-                    pred_split = _split_current_by_reference(
-                        current=current_pred_i,
-                        original=original_i,
-                        repaired_target_mask=reference["repaired_target_mask"],
-                    )
-                    pred_segment_metrics = _compute_segmented_metrics(
-                        original=original_i,
-                        current=current_pred_i,
-                        reference=reference,
-                        current_split=pred_split,
-                        metrics=metrics,
-                        density_alpha=args.density_alpha,
-                    )
-                    segmented_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": f"A::{spec.name}",
-                            "metrics": pred_segment_metrics,
-                        }
-                    )
-
-                    sample_metrics[spec.name] = model_metric_values
-                    sample_predictions[spec.name] = model_pred_batches[spec.name][i]
-                    sample_segmented[spec.name] = {
-                        "current_repaired": pred_split["current_repaired"]
-                        .detach()
-                        .cpu(),
-                        "current_preserved": pred_split["current_preserved"]
-                        .detach()
-                        .cpu(),
-                        "metrics": pred_segment_metrics,
-                    }
+                reference = scenario_a_out["reference"]
+                defected_metric_values = scenario_a_out["defected_metric_values"]
+                sample_predictions = scenario_a_out["sample_predictions"]
+                sample_metrics = scenario_a_out["sample_metrics"]
+                sample_segmented = scenario_a_out["sample_segmented"]
 
             if run_scenario_c:
                 if gt_fps_i is None:
                     raise RuntimeError("Scenario C requires pipeline FPS ground truth")
-                completion_input_t = (
-                    torch.from_numpy(pipeline_stages["fps"])
-                    .float()
-                    .unsqueeze(0)
-                    .to(cfg.device)
+                sample_c_predictions, sample_c_metrics = _run_scenario_c(
+                    sample_idx=sample_idx,
+                    gt_fps_i=gt_fps_i,
+                    pipeline_stages=pipeline_stages,
+                    model_entries=model_entries,
+                    metrics=metrics,
+                    density_alpha=args.density_alpha,
+                    device=cfg.device,
+                    per_sample_records=per_sample_records,
                 )
-                for spec, model in model_entries:
-                    t_pred0 = time.perf_counter()
-                    pred_c = _predict(
-                        model,
-                        spec.model_type,
-                        completion_input_t,
-                        target_points=int(gt_fps_i.shape[0]),
-                    )[0]
-                    pred_c_elapsed = float(time.perf_counter() - t_pred0)
-
-                    per_sample_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": f"T::C::{spec.name}",
-                            "metrics": {"seconds": pred_c_elapsed},
-                        }
-                    )
-
-                    c_metrics = _compute_metric_values_single(
-                        pred=pred_c,
-                        gt=gt_fps_i,
-                        metrics=metrics,
-                        density_alpha=args.density_alpha,
-                    )
-                    per_sample_records.append(
-                        {
-                            "sample_index": sample_idx,
-                            "model": f"C::{spec.name}",
-                            "metrics": c_metrics,
-                        }
-                    )
-                    sample_c_predictions[spec.name] = pred_c.detach().cpu()
-                    sample_c_metrics[spec.name] = c_metrics
 
             if run_scenario_a and sample_idx in selected_set:
+                if reference is None:
+                    raise RuntimeError(
+                        "Scenario A payload requires reference split data"
+                    )
                 selected_payload[sample_idx] = {
                     "category_caption": sample_category_caption,
                     "original": original_i.detach().cpu(),
@@ -1531,6 +1672,7 @@ def main() -> None:
                     "c_metrics": sample_c_metrics,
                 }
 
+    # Compute aggregate tables and save output logs and save to CSV
     main_metric_cols = _metric_columns(per_sample_records, metrics)
     aggregate_rows = _compute_aggregate_table(per_sample_records, main_metric_cols)
     _save_per_sample_csv(metrics_csv, per_sample_records, main_metric_cols)
@@ -1553,6 +1695,7 @@ def main() -> None:
     side_notes = []
     kept_indices: List[int] = []
 
+    # Assemble data for gallery export based on selected samples
     for idx in chosen_indices:
         added_any = False
 
@@ -1638,6 +1781,7 @@ def main() -> None:
                 sample_idx=idx,
             )
 
+    # Configure gallery settings and save gallery images
     gallery_cfg = GalleryConfig(
         max_sample_cols=args.max_sample_cols,
         views=_parse_views(args.views),
@@ -1800,6 +1944,7 @@ def main() -> None:
     segmented_descriptions = []
     segmented_kept_indices: List[int] = []
 
+    # Assemble data for segmented gallery export
     for idx in chosen_indices:
         payload = segmented_selected_payload.get(idx)
         if payload is None:
