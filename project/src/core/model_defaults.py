@@ -3,6 +3,11 @@ Author: Matěj Křenek (xkrenem00)
 Contact: xkrenem00@vutbr.cz
 File: model_defaults.py
 Responsibility: Centralized default model configuration and training hyperparameters for CLI scripts.
+
+Attribution:
+    Default model parameters in this module were mostly adapted from:
+    - https://github.com/mrakotosaon/pointcleannet
+    - https://github.com/yuxumin/PoinTr
 """
 
 from __future__ import annotations
