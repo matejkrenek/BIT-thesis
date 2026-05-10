@@ -105,15 +105,15 @@ def _compute_metric_values_single(
 
 def _parse_metrics(value: str) -> List[str]:
     """Parse and validate metric names from a comma-separated CLI value."""
+    supported_metrics = ["chamfer", "hausdorff", "dcd"]
     metrics = [m.strip().lower() for m in value.split(",") if m.strip()]
     if not metrics:
         raise ValueError("No metrics parsed from --metrics")
 
-    invalid = [m for m in metrics if m not in ("chamfer", "hausdorff", "dcd")]
+    invalid = [m for m in metrics if m not in supported_metrics]
     if invalid:
         raise ValueError(
-            "Unsupported metrics: "
-            f"{invalid}. Supported: {list(("chamfer", "hausdorff", "dcd"))}"
+            f"Unsupported metrics: {invalid}. Supported: {supported_metrics}"
         )
     return metrics
 
