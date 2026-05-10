@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 
 from core.inference_pipeline import (
-    MODEL_PRESETS,
     InferenceOptions,
     run_inference,
     visualize_result_polyscope,
@@ -76,32 +75,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--completion-model",
         type=str,
         default="adapointr",
-        choices=["adapointr"],
+        choices=["pcn", "pointr", "adapointr"],
         help="Completion backend model.",
     )
 
     parser.add_argument(
         "--denoise-checkpoint",
         type=str,
-        default=str(MODEL_PRESETS["denoise"]["checkpoint"]),
+        required=True,
         help="Checkpoint path for denoising model.",
     )
     parser.add_argument(
         "--denoise-params-checkpoint",
         type=str,
-        default=str(MODEL_PRESETS["denoise"]["params_checkpoint"]),
+        default="",
         help="Optional params checkpoint for denoising defaults.",
     )
     parser.add_argument(
         "--outlier-checkpoint",
         type=str,
-        default=str(MODEL_PRESETS["outlier"]["checkpoint"]),
+        required=True,
         help="Checkpoint path for outlier model.",
     )
     parser.add_argument(
         "--completion-checkpoint",
         type=str,
-        default=str(MODEL_PRESETS["completion_adapointr"]["checkpoint"]),
+        required=True,
         help="Checkpoint path for completion model.",
     )
 

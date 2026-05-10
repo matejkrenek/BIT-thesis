@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import torch
+from pytorch3d.ops import sample_farthest_points
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -15,24 +16,6 @@ from core.bootstrap import bootstrap
 from core.model_defaults import get_default_model_params
 from core.models import create_model, load_model_checkpoint
 from dataset.wrapper import PointcloudPatchDataset
-from models.adapointr.utils import fps as adapointr_fps
-
-# Static pipeline presets; model constructor params are sourced from core.model_defaults.
-MODEL_PRESETS: dict[str, dict[str, Any]] = {
-    "denoise": {
-        "model_name": "pointcleannet",
-        "checkpoint": "outputs/pointcleannet/PointCleanNet_model.pth",
-        "params_checkpoint": "outputs/pointcleannet/PointCleanNet_params.pth",
-    },
-    "outlier": {
-        "model_name": "pointcleannet_outliers",
-        "checkpoint": "outputs/pointcleannet/PointCleanNetOutliers_model.pth",
-    },
-    "completion_adapointr": {
-        "model_name": "adapointr",
-        "checkpoint": "outputs/adapointr/checkpoints/best.pt",
-    },
-}
 
 
 @dataclass
@@ -57,10 +40,10 @@ class InferenceOptions:
     run_outlier_after: bool = False
     run_completion: bool = False
     completion_model: str = "adapointr"
-    denoise_checkpoint: str = MODEL_PRESETS["denoise"]["checkpoint"]
-    denoise_params_checkpoint: str = MODEL_PRESETS["denoise"]["params_checkpoint"]
-    outlier_checkpoint: str = MODEL_PRESETS["outlier"]["checkpoint"]
-    completion_checkpoint: str = MODEL_PRESETS["completion_adapointr"]["checkpoint"]
+    denoise_checkpoint: str = ""
+    denoise_params_checkpoint: str = ""
+    outlier_checkpoint: str = ""
+    completion_checkpoint: str = ""
 
 
 @dataclass
@@ -488,7 +471,7 @@ def _run_completion_with_fps_input(
     in_t = torch.from_numpy(pts).unsqueeze(0).to(device=device, dtype=torch.float32)
 
     if in_t.shape[1] >= target_input:
-        in_t = adapointr_fps(in_t, target_input)
+        in_t, _ = sample_farthest_points(in_t, K=target_input)
     else:
         rng = np.random.default_rng(int(seed))
         extra_idx = rng.choice(
@@ -529,9 +512,15 @@ def _run_completion_with_fps_input(
 
 def _make_completion_config(model_name: str) -> dict[str, Any]:
     name = model_name.strip().lower()
-    if name == "adapointr":
-        return MODEL_PRESETS["completion_adapointr"]
-    raise ValueError("Unsupported completion model. Use one of: adapointr")
+    if name not in ("pcn", "pointr", "adapointr"):
+        raise ValueError(
+            "Unsupported completion model. Use one of: "
+            f"{', '.join(("pcn", "pointr", "adapointr"))}"
+        )
+
+    # Validate model availability via centralized constructor defaults.
+    get_default_model_params(name)
+    return {"model_name": name}
 
 
 def run_inference(options: InferenceOptions) -> InferenceResult:
@@ -587,8 +576,8 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
         )
     print(f"[input] loaded point cloud: {int(input_cloud.shape[0])} points")
 
-    denoise_cfg = MODEL_PRESETS["denoise"]
-    denoise_default_params = get_default_model_params(denoise_cfg["model_name"])
+    denoise_model_name = "pointcleannet"
+    denoise_default_params = get_default_model_params(denoise_model_name)
     params_path = Path(options.denoise_params_checkpoint).expanduser().resolve()
     trainopt = None
     if params_path.exists():
@@ -616,11 +605,13 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
     sym_op = str(getattr(trainopt, "sym_op", "max"))
 
     if options.run_denoise:
+        if not str(options.denoise_checkpoint).strip():
+            raise ValueError("Denoise stage requires --denoise-checkpoint")
         denoise_ckpt = Path(options.denoise_checkpoint).expanduser().resolve()
         if not denoise_ckpt.exists():
             raise FileNotFoundError(f"Missing denoise checkpoint: {denoise_ckpt}")
 
-        denoise_model_params = get_default_model_params(denoise_cfg["model_name"])
+        denoise_model_params = get_default_model_params(denoise_model_name)
         denoise_model_params.update(
             {
                 "num_points": int(points_per_patch),
@@ -646,14 +637,16 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
 
     outlier_model = None
     if options.run_outlier_before or options.run_outlier_after:
+        if not str(options.outlier_checkpoint).strip():
+            raise ValueError("Outlier stage requires --outlier-checkpoint")
         outlier_ckpt = Path(options.outlier_checkpoint).expanduser().resolve()
         if not outlier_ckpt.exists():
             raise FileNotFoundError(
                 "Outlier stage requires a valid outlier checkpoint."
             )
 
-        outlier_preset = MODEL_PRESETS["outlier"]
-        outlier_params = get_default_model_params(outlier_preset["model_name"])
+        outlier_model_name = "pointcleannet_outliers"
+        outlier_params = get_default_model_params(outlier_model_name)
         outlier_params.update(
             {
                 "num_points": int(points_per_patch),
@@ -666,7 +659,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
 
         def _build_outlier_model():
             model = create_model(
-                outlier_preset["model_name"],
+                outlier_model_name,
                 outlier_params,
                 device=device,
             )
@@ -726,7 +719,7 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
             )
 
             denoise_model = create_model(
-                denoise_cfg["model_name"],
+                denoise_model_name,
                 denoise_model_params,
                 device=device,
             )
@@ -787,6 +780,8 @@ def run_inference(options: InferenceOptions) -> InferenceResult:
 
     if options.run_completion:
         completion_cfg = _make_completion_config(options.completion_model)
+        if not str(options.completion_checkpoint).strip():
+            raise ValueError("Completion stage requires --completion-checkpoint")
         completion_ckpt = Path(options.completion_checkpoint).expanduser().resolve()
         if not completion_ckpt.exists():
             raise FileNotFoundError(f"Missing completion checkpoint: {completion_ckpt}")

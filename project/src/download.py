@@ -1,5 +1,5 @@
 """
-Author: Matej Krenek (xkrenem00)
+Author: Matěj Křenek (xkrenem00)
 Contact: xkrenem00@vutbr.cz
 File: download.py
 Responsibility: Download files from Hugging Face Hub into a target directory.
@@ -13,8 +13,11 @@ import os
 import subprocess
 from pathlib import Path
 
+from core.logger import logger
+
 
 def _parse_csv_patterns(value: str | None) -> list[str] | None:
+    """Parse comma-separated glob patterns and return a normalized list or None."""
     if not value:
         return None
     patterns = [item.strip() for item in value.split(",")]
@@ -23,12 +26,14 @@ def _parse_csv_patterns(value: str | None) -> list[str] | None:
 
 
 def _matches_any(path: str, patterns: list[str] | None) -> bool:
+    """Return True when the path matches at least one provided glob pattern."""
     if not patterns:
         return False
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
 
 def _split_bucket_source(source: str) -> tuple[str, str]:
+    """Split hf bucket URI into bucket_id ('owner/name') and optional path."""
     prefix = "hf://buckets/"
     if not source.startswith(prefix):
         raise ValueError(
@@ -50,6 +55,7 @@ def _split_bucket_source(source: str) -> tuple[str, str]:
 
 
 def _to_repo_relative(remote_path: str, bucket_id: str) -> str:
+    """Normalize Hugging Face listed paths to repository-relative file paths."""
     # Hugging Face file listings can return different path prefixes depending on API path form.
     for candidate in (
         f"hf://buckets/{bucket_id}/",
@@ -66,6 +72,7 @@ def _to_repo_relative(remote_path: str, bucket_id: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build CLI parser for bucket download configuration."""
     parser = argparse.ArgumentParser(
         description=(
             "Download files from Hugging Face bucket storage into the selected output "
@@ -111,24 +118,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _download_via_cli(source: str, output_dir: Path, token: str | None) -> int:
+    """Fallback to HF CLI when huggingface_hub Python API is unavailable."""
     cmd = ["hf", "buckets", "cp", source, str(output_dir)]
     if token:
         cmd.extend(["--token", token])
 
-    print("[download.py] Falling back to Hugging Face CLI: hf buckets cp")
+    logger.info("Falling back to Hugging Face CLI: hf buckets cp")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         raise RuntimeError(
             "CLI fallback failed. Ensure 'hf' is installed and authenticated."
         )
-    print("[download.py] Download completed successfully (CLI fallback).")
+    logger.info("Download completed successfully (CLI fallback).")
     return 0
 
 
 def main() -> int:
+    """Run download workflow with optional filtering and CLI/API fallback."""
     parser = build_parser()
     args = parser.parse_args()
 
+    # Prepare output directory
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,10 +147,11 @@ def main() -> int:
     ignore_patterns = _parse_csv_patterns(args.ignore_patterns)
 
     if token is None:
-        print("[download.py] HF token not provided; proceeding without authentication.")
+        logger.info("HF token not provided; proceeding without authentication.")
 
-    print(f"[download.py] Downloading '{args.source}' to '{output_dir}'...")
+    logger.info("Downloading '{}' to '{}'...", args.source, output_dir)
 
+    # Attempt to use Python API for better control; fallback to CLI if not available.
     try:
         # Prefer Python API for fine-grained filtering and per-file target paths.
         from huggingface_hub import HfFileSystem, download_bucket_files
@@ -148,12 +159,14 @@ def main() -> int:
         # Keep CLI fallback so script still works when huggingface_hub extras are missing.
         return _download_via_cli(args.source, output_dir, token)
 
+    # Parse bucket source and list files using Hugging Face API
     bucket_id, bucket_path = _split_bucket_source(args.source)
     bucket_prefix = bucket_path.strip("/")
     hf_source = f"hf://buckets/{bucket_id}"
     if bucket_prefix:
         hf_source = f"{hf_source}/{bucket_prefix}"
 
+    # Normalize listed file paths
     fs = HfFileSystem(token=token)
     if fs.isfile(hf_source):
         # Single-file source: keep relative output rooted at the file parent folder.
@@ -177,6 +190,7 @@ def main() -> int:
     files_to_download: list[tuple[str, str]] = []
     skipped = 0
 
+    # Iterate over listed files and apply allow/ignore patterns to determine final download list.
     for repo_path in repo_paths:
         # Preserve source sub-tree layout under output_dir.
         rel_path = os.path.relpath(repo_path, base_prefix or ".").replace("\\", "/")
@@ -197,20 +211,22 @@ def main() -> int:
         files_to_download.append((repo_path, str(local_file)))
 
     if not files_to_download:
-        print(
-            "[download.py] Nothing to download after filtering/skipping. "
-            f"Skipped existing: {skipped}."
+        logger.info(
+            "Nothing to download after filtering/skipping. Skipped existing: {}.",
+            skipped,
         )
         return 0
 
+    # Download files using Hugging Face API with per-file target paths.
     download_bucket_files(bucket_id, files=files_to_download, token=token)
 
-    print(
-        f"[download.py] Download completed successfully. Downloaded: {len(files_to_download)}, "
-        f"skipped existing: {skipped}."
+    logger.info(
+        "Download completed successfully. Downloaded: {}, skipped existing: {}.",
+        len(files_to_download),
+        skipped,
     )
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise main()

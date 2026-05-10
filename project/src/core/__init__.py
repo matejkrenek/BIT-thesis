@@ -8,7 +8,6 @@ from .logger import logger
 from .inference_pipeline import (
     InferenceOptions,
     InferenceResult,
-    MODEL_PRESETS,
     run_inference,
     visualize_result_polyscope,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "logger",
     "InferenceOptions",
     "InferenceResult",
-    "MODEL_PRESETS",
     "run_inference",
     "visualize_result_polyscope",
     "ModelConfig",

@@ -27,7 +27,6 @@ from core import (
     logger,
 )
 from core.inference_pipeline import (
-    MODEL_PRESETS,
     _apply_outlier_filter,
     _build_patch_dataset,
     _load_checkpoint_flexible,
@@ -1001,7 +1000,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--denoise-params-checkpoint",
         type=str,
-        default=str(MODEL_PRESETS["denoise"]["params_checkpoint"]),
+        default="",
         help="Optional params checkpoint for denoise defaults.",
     )
     parser.add_argument(

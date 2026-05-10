@@ -1,5 +1,33 @@
 #!/usr/bin/env bash
+
+# Author: Matěj Křenek (xkrenem00)
+# Contact: xkrenem00@vutbr.cz
+# File: download_from_ssh.sh
+# Responsibility: Downloads a remote directory over SSH to a local directory using sshpass and rsync.
+
 set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+
+die() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+require_command() {
+    local cmd="$1"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        die "$cmd is required but not installed."
+    fi
+}
+
+require_value() {
+    local opt="$1"
+    local val="${2-}"
+    if [[ -z "$val" || "$val" == -* ]]; then
+        die "Missing value for $opt"
+    fi
+}
 
 usage() {
     cat <<'EOF'
@@ -29,18 +57,22 @@ LOCAL_DIR=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -s|--server)
+            require_value "$1" "${2-}"
             SERVER="${2:-}"
             shift 2
             ;;
         -p|--password)
+            require_value "$1" "${2-}"
             PASSWORD="${2:-}"
             shift 2
             ;;
         -r|--remote-dir)
+            require_value "$1" "${2-}"
             REMOTE_DIR="${2:-}"
             shift 2
             ;;
         -l|--local-dir)
+            require_value "$1" "${2-}"
             LOCAL_DIR="${2:-}"
             shift 2
             ;;
@@ -62,11 +94,8 @@ if [[ -z "$SERVER" || -z "$PASSWORD" || -z "$REMOTE_DIR" || -z "$LOCAL_DIR" ]]; 
     exit 1
 fi
 
-if ! command -v sshpass >/dev/null 2>&1; then
-    echo "Error: sshpass is required but not installed." >&2
-    echo "Install it, for example on Debian/Ubuntu: sudo apt install sshpass" >&2
-    exit 1
-fi
+require_command sshpass
+require_command rsync
 
 mkdir -p "$LOCAL_DIR"
 

@@ -26,6 +26,7 @@ from core.datasets import (
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
 )
+from core.logger import logger
 from dataset import ModelNetDataset, ShapeNetDataset
 from dataset.wrapper import NormalizeWrapperDataset
 from visualize.dataset_gallery import (
@@ -36,6 +37,7 @@ from visualize.dataset_gallery import (
 
 
 def _build_base_dataset(args, dataset_name: str):
+    """Create a base ShapeNet or ModelNet dataset from CLI arguments."""
     categories = _parse_csv(args.categories) if args.categories else None
     if dataset_name == "shapenet":
         base_dataset = ShapeNetDataset(
@@ -58,11 +60,13 @@ def _build_dataset(
     dataset_name: Optional[str] = None,
     mode: Optional[str] = None,
 ):
+    """Build dataset variant (pure/basic/advanced) including optional normalization."""
     dataset_name = dataset_name or args.dataset
     mode = mode or args.mode
 
     base_dataset = _build_base_dataset(args, dataset_name)
 
+    # For case where pure dataset without augmentation is requested
     if mode == "pure":
         dataset = base_dataset
         if args.normalize:
@@ -89,6 +93,7 @@ def _build_dataset(
 
 
 def _prepare_cloud_for_gallery(cloud: Any) -> Optional[np.ndarray]:
+    """Convert an input cloud into a strict (N, 3) NumPy array for rendering."""
     arr = _to_numpy_points(cloud)
     if arr is None:
         return None
@@ -104,6 +109,7 @@ def _prepare_cloud_for_gallery(cloud: Any) -> Optional[np.ndarray]:
 
 
 def _extract_sample_clouds(sample: Any) -> Tuple[Any, Any, Optional[dict]]:
+    """Extract original/defected clouds and optional log from multiple sample layouts."""
     if sample is None:
         raise ValueError("Sample is None")
 
@@ -130,6 +136,7 @@ def _extract_sample_clouds(sample: Any) -> Tuple[Any, Any, Optional[dict]]:
 
 
 def _extract_sample_category(sample: Any) -> str:
+    """Return a normalized category string from a sample when available."""
     if sample is None:
         return ""
 
@@ -152,6 +159,7 @@ def _extract_sample_category(sample: Any) -> str:
 
 
 def _summarize_log(log: Optional[dict]) -> str:
+    """Serialize defect log dictionary into compact human-readable text."""
     if not log:
         return ""
 
@@ -171,6 +179,7 @@ def _build_description(
     *,
     include_log: bool,
 ) -> str:
+    """Build per-sample caption from category and optional defect log."""
     parts = []
     if category:
         parts.append(f"category: {category}")
@@ -182,26 +191,12 @@ def _build_description(
 
 
 def _resolve_run_dir(args: argparse.Namespace) -> Tuple[str, str]:
+    """Create and return run directory path and run name."""
     os.makedirs(args.output_dir, exist_ok=True)
     run_name = args.run_name or datetime.now().strftime("run_%Y%m%d_%H%M%S")
     run_dir = os.path.join(args.output_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
     return run_dir, run_name
-
-
-def _resolve_output_stem(
-    args: argparse.Namespace,
-    *,
-    dataset_name: str,
-    mode: str,
-    suite_mode: bool,
-) -> str:
-    default_stem = f"{dataset_name}_{mode}"
-    if suite_mode or not args.output_name:
-        return default_stem
-
-    stem, _ = os.path.splitext(args.output_name)
-    return stem or default_stem
 
 
 def _save_gallery_in_formats(
@@ -217,6 +212,7 @@ def _save_gallery_in_formats(
     config: GalleryConfig,
     seed: int,
 ) -> List[str]:
+    """Export one gallery into all requested file formats and return output paths."""
     output_paths = []
     for fmt in formats:
         out_path = os.path.join(run_dir, f"{output_stem}.{fmt}")
@@ -242,6 +238,7 @@ def _collect_gallery_rows(
     custom_labels: Optional[List[str]],
     show_defect_log: bool,
 ):
+    """Collect valid gallery rows with captions, labels, and skipped-item diagnostics."""
     pointclouds = []
     descriptions = []
     kept_indices = []
@@ -255,6 +252,7 @@ def _collect_gallery_rows(
             category = _extract_sample_category(sample)
             original = _prepare_cloud_for_gallery(original)
 
+            # Collect pointclouds for both pure (single cloud) and augmented (original+defected) modes
             if mode == "pure":
                 pointclouds.append([original])
                 if custom_labels:
@@ -285,12 +283,13 @@ def _collect_gallery_rows(
             kept_indices.append(idx)
         except Exception as exc:
             skipped.append({"index": int(idx), "error": str(exc)})
-            print(f"[WARN] Skipping sample {idx}: {exc}")
+            logger.warning("Skipping sample {}: {}", idx, exc)
 
     return pointclouds, descriptions, kept_indices, badge_labels, skipped
 
 
 def _build_suite_specs(args: argparse.Namespace):
+    """Return gallery generation targets for either one config or full suite mode."""
     if not args.generate_suite:
         return [
             {
@@ -309,6 +308,7 @@ def _build_suite_specs(args: argparse.Namespace):
 def _build_summary_payload(
     args: argparse.Namespace, run_name: str, formats: Sequence[str]
 ):
+    """Create summary metadata payload written to summary.json at the end."""
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "run_name": run_name,
@@ -336,6 +336,7 @@ def _build_summary_payload(
 
 
 def _choose_indices(dataset_len: int, args: argparse.Namespace) -> List[int]:
+    """Select sample indices from explicit list or deterministic random sampling."""
     if args.sample_indices:
         raw_indices = _parse_indices(args.sample_indices)
         invalid = [i for i in raw_indices if i < 0 or i >= dataset_len]
@@ -559,10 +560,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Entry point: parse args, build datasets, render galleries, and save summary."""
     parser = build_parser()
 
     args = parser.parse_args()
 
+    # Bootstrap core components and resolve directory paths
     cfg = bootstrap(seed=int(args.seed), data_subdir=None)
     args.data_root = args.data_root or str(cfg.data_dir)
     args.dense_root = args.dense_root or os.path.join(
@@ -575,17 +578,19 @@ def main() -> None:
             "Both viewer and image generation are disabled. Nothing to do."
         )
 
+    # Extract formated arguments and prepare summary payload
     formats = _parse_output_formats(args.export_formats)
     run_dir, run_name = _resolve_run_dir(args)
     summary = _build_summary_payload(args, run_name=run_name, formats=formats)
 
     if not args.generate_images:
-        print("[INFO] Image generation disabled (--no-generate-images).")
+        logger.info("Image generation disabled (--no-generate-images).")
         return
 
     custom_labels = _parse_labels(args.cloud_labels) if args.cloud_labels else None
     suite_specs = _build_suite_specs(args)
 
+    # Visualization config based on CLI arguments
     config_kwargs = {
         "max_sample_cols": args.max_sample_cols,
         "views": _parse_views(args.views),
@@ -613,6 +618,7 @@ def main() -> None:
 
     config = GalleryConfig(**config_kwargs)
 
+    # Iterate over requested suite specs, build datasets, collect gallery rows, and save outputs
     generated_count = 0
     for spec in suite_specs:
         spec_dataset = spec["dataset"]
@@ -624,12 +630,12 @@ def main() -> None:
             mode=spec_mode,
         )
         if len(dataset) == 0:
-            print(f"[WARN] Skipping empty dataset for {spec_dataset}/{spec_mode}")
+            logger.warning("Skipping empty dataset for {}/{}", spec_dataset, spec_mode)
             continue
 
         if args.open_viewer:
-            print(
-                "[INFO] Closed Polyscope viewer, continuing with gallery generation..."
+            logger.info(
+                "Closed Polyscope viewer, continuing with gallery generation..."
             )
 
         chosen_indices = _choose_indices(len(dataset), args)
@@ -648,15 +654,16 @@ def main() -> None:
         )
 
         if not pointclouds:
-            print(f"[WARN] No valid samples for {spec_dataset}/{spec_mode}")
+            logger.warning("No valid samples for {}/{}", spec_dataset, spec_mode)
             continue
 
-        stem = _resolve_output_stem(
-            args,
-            dataset_name=spec_dataset,
-            mode=spec_mode,
-            suite_mode=args.generate_suite,
-        )
+        default_stem = f"{spec_dataset}_{spec_mode}"
+        if args.generate_suite or not args.output_name:
+            stem = default_stem
+        else:
+            stem, _ = os.path.splitext(args.output_name)
+            stem = stem or default_stem
+
         output_paths = _save_gallery_in_formats(
             run_dir,
             output_stem=stem,
@@ -683,8 +690,11 @@ def main() -> None:
             }
         )
         generated_count += 1
-        print(
-            f"[INFO] Generated {spec_dataset}/{spec_mode} -> {', '.join(output_paths)}"
+        logger.info(
+            "Generated {}/{} -> {}",
+            spec_dataset,
+            spec_mode,
+            ", ".join(output_paths),
         )
 
     if generated_count == 0:
@@ -692,12 +702,13 @@ def main() -> None:
             "No gallery was generated. Check dataset and filtering options."
         )
 
+    # Save summary JSON with metadata about the run and generated galleries
     summary_path = os.path.join(run_dir, "summary.json")
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
 
-    print(f"[INFO] Saved run outputs to: {run_dir}")
-    print(f"[INFO] Saved run summary to: {summary_path}")
+    logger.info("Saved run outputs to: {}", run_dir)
+    logger.info("Saved run summary to: {}", summary_path)
 
 
 if __name__ == "__main__":
