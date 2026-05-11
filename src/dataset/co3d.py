@@ -17,8 +17,8 @@ from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
 from torchvision.io import read_image
 
-from src.dataset.downloader import ZipUrlDownloader
-from src.core.logger import logger
+from dataset.downloader import ZipUrlDownloader
+from core.logger import logger
 from pathlib import Path
 import shutil
 

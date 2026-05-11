@@ -19,11 +19,11 @@ from pytorch3d.ops import sample_farthest_points
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from src.core.bootstrap import bootstrap
-from src.core.logger import logger
-from src.core.model_defaults import get_default_model_params
-from src.core.models import create_model, load_model_checkpoint
-from src.dataset.wrapper import PointcloudPatchDataset
+from core.bootstrap import bootstrap
+from core.logger import logger
+from core.model_defaults import get_default_model_params
+from core.models import create_model, load_model_checkpoint
+from dataset.wrapper import PointcloudPatchDataset
 
 
 @dataclass

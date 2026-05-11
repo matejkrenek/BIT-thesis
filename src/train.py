@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
-from src.core import (
+from core import (
     ModelConfig,
     available_models,
     create_advanced_reconstruction_dataset,
@@ -40,7 +40,7 @@ from core import (
     bootstrap,
     logger,
 )
-from src.notifications import DiscordNotifier
+from notifications import DiscordNotifier
 
 
 def _trainable_models_for_unified_cli() -> list[str]:
@@ -587,7 +587,7 @@ def main() -> None:
         )
 
     if target_dataset == "modelnet":
-        from src.dataset.modelnet import ModelNetDataset
+        from dataset.modelnet import ModelNetDataset
 
         modelnet_root = (
             Path(args.modelnet_root).expanduser().resolve()

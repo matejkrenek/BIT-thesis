@@ -10,8 +10,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from src.core.logger import logger
-from src.core.inference_pipeline import (
+from core.logger import logger
+from core.inference_pipeline import (
     InferenceOptions,
     run_inference,
     visualize_result_polyscope,

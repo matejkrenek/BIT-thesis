@@ -14,8 +14,8 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from src.core.bootstrap import bootstrap
-from src.core.cli_parsing import (
+from core.bootstrap import bootstrap
+from core.cli_parsing import (
     parse_csv as _parse_csv,
     parse_indices as _parse_indices,
     parse_labels as _parse_labels,
@@ -23,14 +23,14 @@ from src.core.cli_parsing import (
     parse_views as _parse_views,
     parse_xyz_degrees as _parse_xyz_degrees,
 )
-from src.core.datasets import (
+from core.datasets import (
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
 )
-from src.core.logger import logger
-from src.dataset import ModelNetDataset, ShapeNetDataset
-from src.dataset.wrapper import NormalizeWrapperDataset
-from src.visualize.dataset_gallery import (
+from core.logger import logger
+from dataset import ModelNetDataset, ShapeNetDataset
+from dataset.wrapper import NormalizeWrapperDataset
+from visualize.dataset_gallery import (
     GalleryConfig,
     _to_numpy_points,
     save_dataset_gallery,

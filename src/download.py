@@ -13,7 +13,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from src.core.logger import logger
+from core.logger import logger
 
 
 def _parse_csv_patterns(value: str | None) -> list[str] | None:

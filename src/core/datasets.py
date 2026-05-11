@@ -12,8 +12,8 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 
-from src.dataset import ShapeNetDataset
-from src.dataset.defect import (
+from dataset import ShapeNetDataset
+from dataset.defect import (
     Combined,
     LargeMissingRegion,
     LocalDropout,
@@ -22,7 +22,7 @@ from src.dataset.defect import (
     SurfaceToPlaneBridge,
     BelowObjectPlane,
 )
-from src.dataset.wrapper import (
+from dataset.wrapper import (
     AugmentWrapperDataset,
     DenseWrapperDataset,
     NormalizeWrapperDataset,
@@ -174,7 +174,7 @@ def create_basic_reconstruction_dataset(
     )
 
     if visualize:
-        from src.visualize.viewer import SampleViewer
+        from visualize.viewer import SampleViewer
 
         viewer = SampleViewer(
             dataset,
@@ -324,7 +324,7 @@ def create_advanced_reconstruction_dataset(
         )
 
     if visualize:
-        from src.visualize.viewer import SampleViewer
+        from visualize.viewer import SampleViewer
 
         viewer = SampleViewer(
             dataset,

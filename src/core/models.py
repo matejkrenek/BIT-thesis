@@ -36,13 +36,13 @@ def _normalize_model_name(name: str) -> str:
 
 
 def _build_pcn(params: Mapping[str, Any]) -> nn.Module:
-    from src.models.pcn import PCN
+    from models.pcn import PCN
 
     return PCN(**dict(params))
 
 
 def _build_pointr(params: Mapping[str, Any]) -> nn.Module:
-    from src.models.pointr import PoinTr
+    from models.pointr import PoinTr
 
     config = SimpleNamespace(**dict(params))
     return PoinTr(config=config)
@@ -70,20 +70,20 @@ def _to_config_node(value: Any) -> Any:
 
 
 def _build_adapointr(params: Mapping[str, Any]) -> nn.Module:
-    from src.models.adapointr.model import AdaPoinTr
+    from models.adapointr.model import AdaPoinTr
 
     config = _to_config_node(dict(params))
     return AdaPoinTr(config=config)
 
 
 def _build_pointcleannet(params: Mapping[str, Any]) -> nn.Module:
-    from src.models.pointcleannet import PointCleanNet
+    from models.pointcleannet import PointCleanNet
 
     return PointCleanNet(**dict(params))
 
 
 def _build_pointcleannet_outliers(params: Mapping[str, Any]) -> nn.Module:
-    from src.models.pointcleannet import PointCleanNetOutliers
+    from models.pointcleannet import PointCleanNetOutliers
 
     return PointCleanNetOutliers(**dict(params))
 

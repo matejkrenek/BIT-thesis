@@ -6,7 +6,7 @@ Responsibility: Downloader for zip files from URLs with optional postprocessing 
 """
 
 from .base import BaseDownloader
-from src.core.logger import logger
+from core.logger import logger
 import zipfile
 import requests
 import os

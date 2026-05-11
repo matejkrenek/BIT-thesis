@@ -16,8 +16,8 @@ import open3d as o3d
 from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
 
-from src.dataset.downloader.huggingface import HuggingFaceDownloader
-from src.core.logger import logger
+from dataset.downloader.huggingface import HuggingFaceDownloader
+from core.logger import logger
 
 
 class ShapeNetDataset(InMemoryDataset):

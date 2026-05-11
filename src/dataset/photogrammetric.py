@@ -23,8 +23,8 @@ from mini_dust3r.model import AsymmetricCroCo3DStereo
 from mini_dust3r.utils.image import load_images
 import cv2
 import trimesh
-from src.core.logger import logger
-from src.notifications import DiscordNotifier
+from core.logger import logger
+from notifications import DiscordNotifier
 
 
 class PhotogrammetricDataset(Dataset):

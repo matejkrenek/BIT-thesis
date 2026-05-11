@@ -19,7 +19,7 @@ import torch
 from dotenv import load_dotenv
 from pytorch3d.ops import sample_farthest_points
 
-from src.core import (
+from core import (
     ModelConfig,
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
@@ -27,16 +27,16 @@ from src.core import (
     get_default_model_params,
     load_model_checkpoint,
 )
-from src.core.cli_parsing import (
+from core.cli_parsing import (
     parse_csv as _parse_csv,
     parse_output_formats as _parse_output_formats,
     parse_views as _parse_views,
     parse_xyz_degrees as _parse_xyz_degrees,
 )
-from src.core.logger import logger
-from src.dataset import ModelNetDataset, ShapeNetDataset
-from src.dataset.wrapper import NormalizeWrapperDataset, PatchWrapperDataset
-from src.visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
+from core.logger import logger
+from dataset import ModelNetDataset, ShapeNetDataset
+from dataset.wrapper import NormalizeWrapperDataset, PatchWrapperDataset
+from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
 
 
 def _parse_model_spec(value: str) -> Tuple[str, str, Path]:

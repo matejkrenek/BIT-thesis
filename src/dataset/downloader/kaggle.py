@@ -7,7 +7,7 @@ Responsibility: Downloader for datasets from Kaggle with automatic extraction an
 
 from .base import BaseDownloader
 import kagglehub
-from src.core.logger import logger
+from core.logger import logger
 import os
 import shutil
 

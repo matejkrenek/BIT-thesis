@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from src.core import (
+from core import (
     ModelConfig,
     create_advanced_reconstruction_dataset,
     create_basic_reconstruction_dataset,
@@ -35,26 +35,26 @@ from core import (
     bootstrap,
     logger,
 )
-from src.core.inference_pipeline import (
+from core.inference_pipeline import (
     _apply_outlier_filter,
     _build_patch_dataset,
     _load_checkpoint_flexible,
     _predict_denoised_centers,
     _safe_first_patch_radius,
 )
-from src.core.cli_parsing import (
+from core.cli_parsing import (
     parse_indices as _parse_indices,
     parse_optional_csv as _parse_csv,
     parse_views as _parse_views,
     parse_xyz_degrees as _parse_xyz_degrees,
 )
-from src.dataset import ModelNetDataset, ShapeNetDataset
-from src.metrics import (
+from dataset import ModelNetDataset, ShapeNetDataset
+from metrics import (
     chamfer_distance_metric,
     density_aware_chamfer_distance_metric,
     hausdorff_distance_metric,
 )
-from src.visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
+from visualize.dataset_gallery import GalleryConfig, save_dataset_gallery
 
 
 @dataclass(frozen=True)

@@ -16,8 +16,8 @@ import open3d as o3d
 from torch_geometric.data import Data, InMemoryDataset
 import torch_geometric.transforms as T
 
-from src.dataset.downloader import KaggleDownloader
-from src.core.logger import logger
+from dataset.downloader import KaggleDownloader
+from core.logger import logger
 
 """
 ModelNet Dataset for 3D Point Cloud Classification.

@@ -3,6 +3,7 @@ Author: Matěj Křenek (xkrenem00)
 Contact: xkrenem00@vutbr.cz
 File: augmented.py
 Responsibility: Dataset wrapper for applying a list of synthetic defects/augmentations to each sample of a base 3D point cloud dataset.
+Deprecated: This class is deprecated in favor of the more advanced AugmentWrapperDataset in src/dataset/wrapper/augment.py
 """
 
 from torch.utils.data import Dataset
