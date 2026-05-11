@@ -21,8 +21,9 @@ This document is a practical user manual for running the BIT Thesis project. It 
 - [8. Project Folder Structure](#8-project-folder-structure)
 - [9. Troubleshooting](#9-troubleshooting)
 - [10. Reproducibility Notes](#10-reproducibility-notes)
-- [11. Future Work](#11-future-work)
-- [12. Acknowledgements](#12-acknowledgements)
+- [11. Known Limitations](#11-known-limitations)
+- [12. Future Work](#12-future-work)
+- [13. Acknowledgements](#13-acknowledgements)
 
 ## 1. Project Overview
 
@@ -471,15 +472,21 @@ Following section provides a high-level overview of the project folder structure
 - Save command lines used for each experiment.
 - Store checkpoints and CSV metrics together per run.
 
-## 11. Future Work
+## 11. Known Limitations
 
-**Future additions to this guide:**
+- Patch-based completion workflow is non-functional due to architectural dependence of models on global object representation. This remains a topic for future work.
+- Evaluation is currently limited to synthetic datasets and may not fully capture performance on real photogrammetric scans. Adjusting the dataset and evaluation pipeline for real-world data is a key area for future improvement.
+- Used completion models are invariant to rotation and do not leverage color or normal information, which could potentially enhance performance if incorporated.
+
+## 12. Future Work
+
+**Future additions:**
 
 - adjust the inference pipeline to be usable on real photogrammetric scans (currently focused on synthetic data)
 - adjusting the completion models to be able to apply them patch-based on large real scans (currently focused on small synthetic point clouds of 8192 points)
 - adding new defects to dataset pipeline based on iterative adjustment of inference pipeline for real scans
 
-## 12. Acknowledgements
+## 13. Acknowledgements
 
 - [PointNet](https://arxiv.org/abs/1612.00593) and [PointNet++](https://arxiv.org/abs/1706.02413) for foundational point cloud processing concepts.
 - [PCN](https://arxiv.org/abs/1808.00671),[PoinTr](https://arxiv.org/abs/2108.08839), and [AdaPoinTr](https://arxiv.org/abs/2301.04545) for model architectures and training strategies.
