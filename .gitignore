@@ -11,5 +11,6 @@ logs
 .polyscope.ini
 imgui.ini
 checkpoints
+data
 masks
 outputs
