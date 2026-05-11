@@ -1,0 +1,15 @@
+.venv
+**/*.log
+**/*.pyc
+**/*.pt
+**/*.pth
+**/__pycache__
+.ipynb_checkpoints
+.env
+data
+logs
+.polyscope.ini
+imgui.ini
+checkpoints
+masks
+outputs
