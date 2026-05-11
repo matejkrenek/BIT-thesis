@@ -1,6 +1,6 @@
 # Repairing Photogrammetric 3D Reconstruction Defects Using Machine Learning
 
-This markdown document is a practical user manual for running the BIT Thesis project. It provides step-by-step instructions for setting up the environment, downloading necessary assets, and executing the main scripts for dataset preparation, model training, evaluation, and inference.
+This document is a practical user manual for running the BIT Thesis project. It provides step-by-step instructions for setting up the environment, downloading necessary assets, and executing the main scripts for dataset preparation, model training, evaluation, and inference.
 
 - **Name:** Repairing Photogrammetric 3D Reconstruction Defects Using Machine Learning
 - **Author:** Matěj Křenek (xkrenem00)
