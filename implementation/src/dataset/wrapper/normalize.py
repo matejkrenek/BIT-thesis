@@ -1,0 +1,52 @@
+"""
+Author: Matěj Křenek (xkrenem00)
+Contact: xkrenem00@vutbr.cz
+File: normalize.py
+Responsibility: Wrapper dataset for centering and scaling point clouds to unit sphere.
+"""
+
+import torch
+from torch.utils.data import Dataset
+from torch_geometric.data import Data
+
+
+class NormalizeWrapperDataset(Dataset):
+    """
+    Wrapper dataset that normalizes each point cloud to zero mean and unit sphere.
+
+    Args:
+        dataset: Base dataset.
+        eps: Small constant to avoid division by zero.
+    """
+
+    def __init__(self, dataset, eps: float = 1e-12):
+        self.dataset = dataset
+        self.eps = eps
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        data = self.dataset[idx]
+
+        # Validate input
+        if not isinstance(data, Data) or not hasattr(data, "pos"):
+            return None  # vadný vzorek
+
+        pos = data.pos
+        if not torch.is_tensor(pos):
+            pos = torch.as_tensor(pos)
+        pos = pos.float()
+
+        # Center the point cloud
+        centroid = pos.mean(dim=0, keepdim=True)
+        pos_centered = pos - centroid
+
+        # Scale to unit sphere
+        scale = pos_centered.norm(dim=1).max().clamp(min=self.eps)
+        pos_normalized = pos_centered / scale
+
+        # Create output Data object
+        output = Data(pos=pos_normalized, category=getattr(data, "category", None))
+
+        return output
